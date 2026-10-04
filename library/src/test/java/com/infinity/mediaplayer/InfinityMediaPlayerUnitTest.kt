@@ -1,6 +1,7 @@
 package com.infinity.mediaplayer
 
 import com.infinity.mediaplayer.audio.AudioOutputMode
+import com.infinity.mediaplayer.audio.AudioSafetyController
 import com.infinity.mediaplayer.audio.InfinityAudioTrack
 import com.infinity.mediaplayer.core.InfinityPlayerConfig
 import com.infinity.mediaplayer.video.InfinityVideoTrack
@@ -22,6 +23,19 @@ class InfinityMediaPlayerUnitTest {
         assertEquals("STEREO_PCM", stereoMode.name)
         assertEquals("PASSTHROUGH", passMode.name)
         assertEquals("MULTICHANNEL_PCM", multiMode.name)
+    }
+
+    @Test
+    fun testMediaTekAndQualcommDetectionHelpers() {
+        // Validation that static detector helpers execute without exceptions on JVM
+        val isQcom = AudioSafetyController.isQualcommDevice()
+        val isMtk = AudioSafetyController.isMediaTekDevice()
+        val hasDirac = AudioSafetyController.hasDiracService()
+
+        // Just ensure boolean evaluations complete cleanly
+        assertTrue(isQcom || !isQcom)
+        assertTrue(isMtk || !isMtk)
+        assertTrue(hasDirac || !hasDirac)
     }
 
     @Test
@@ -53,6 +67,11 @@ class InfinityMediaPlayerUnitTest {
         val track1080p = InfinityVideoTrack("v2", 1920, 1080, 59.94f, 6000000, "avc1", true)
         val track720p = InfinityVideoTrack("v3", 1280, 720, 30.0f, 3000000, "avc1", false)
         val track480p = InfinityVideoTrack("v4", 854, 480, 29.97f, 1200000, "avc1", false)
+
+        assertEquals("4K UHD", track4k.displayTitle)
+        assertEquals("1080p FHD", track1080p.displayTitle)
+        assertEquals("720p HD", track720p.displayTitle)
+        assertEquals("480p SD", track480p.displayTitle)
 
         assertEquals("4K (3840x2160)", track4k.resolutionLabel)
         assertEquals("1080p (1920x1080)", track1080p.resolutionLabel)

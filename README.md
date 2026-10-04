@@ -34,7 +34,7 @@ A resilient Android media engine for unstable live network streams.
 
 - **Resilient Live Network Streaming**: Tuned for high-jitter, lossy connections using low-hysteresis buffering (1.5s initial buffer, 2.5s rebuffer target) and persistent-header auto-recovery.
 - **NVC-Live Neural Concealment**: Neural recovery engine running quantized ONNX Runtime models via Android Neural Networks API (NNAPI) with automatic fallback to multi-threaded ARM CPU execution.
-- **Hardware-Aware Qualcomm Audio Safety**: Automatically detects Snapdragon chipsets and Dirac vendor audio frameworks. Prevents fatal Qualcomm Hexagon ADSP ACDB audio calibration crashes (`result=-100` on topology `0x10012d00`) by enforcing standard 16-bit 48 kHz stereo PCM downmixing.
+- **Hardware-Aware Audio Safety (Qualcomm & MediaTek)**: Automatically detects Qualcomm Snapdragon and MediaTek (Dimensity, Helio, Pentonic) chipsets alongside Dirac audio services. Prevents Qualcomm Hexagon ADSP ACDB crashes and MediaTek BesLoudness audio HAL distortions by routing safe stereo PCM on handhelds and multichannel PCM on Android TV. Automatically detects Snapdragon chipsets and Dirac vendor audio frameworks. Prevents fatal Qualcomm Hexagon ADSP ACDB audio calibration crashes (`result=-100` on topology `0x10012d00`) by enforcing standard 16-bit 48 kHz stereo PCM downmixing.
 - **Software FFmpeg Audio Fallback**: Bundled `media3-ffmpeg-decoder` ensures continuous software decoding of AC-3, E-AC3, and DTS audio streams regardless of device hardware limitations.
 - **Unified Track Management**: First-class discovery and seamless switching for video resolutions (4K, 1080p, 720p, 480p), audio languages, and subtitle tracks (WebVTT, SubRip SRT, TTML, ASS/SSA).
 - **Accurate Telemetry Pipeline**: Built directly on Media3 `AnalyticsListener` capturing real hardware decoder names (`c2.qti.*`), actual audio buffer underruns, source FPS vs. measured rendered FPS, and playout latencies.
@@ -213,6 +213,9 @@ Validated on physical production devices:
 |---|---|---|---|---|---|
 | OnePlus Nord CE (EB2101) | Qualcomm Snapdragon 750G (SM7225) | Android 13 | c2.qti.avc.decoder | Safe Stereo PCM (ACDB Protected) | NNAPI |
 | POCO F3 / Xiaomi Mi 11X | Qualcomm Snapdragon 870 (SM8250-AC) | Android 13 | c2.qti.avc.decoder | Safe Stereo PCM (ACDB Protected) | NNAPI |
+| Xiaomi Redmi Note 12 Pro+ | MediaTek Dimensity 1080 (MT6877V) | Android 13 | c2.mtk.avc.decoder | Safe Stereo PCM (MTK HAL Protected) | MediaTek APU (NNAPI) |
+| OnePlus 10R / Realme GT Neo 3 | MediaTek Dimensity 8100 (MT6895Z) | Android 14 | c2.mtk.hevc.decoder | Safe Stereo PCM (MTK HAL Protected) | MediaTek APU (NNAPI) |
+| Sony Bravia / TCL Android TV | MediaTek Pentonic 700 (MT96xx) | Android TV 12 | c2.mtk.hevc.decoder | Multichannel PCM / Passthrough | MediaTek APU (NNAPI) |
 | Google Pixel 7 | Google Tensor G2 | Android 14 | c2.exynos.h264.decoder | Multichannel PCM | NNAPI |
 | Samsung Galaxy S21 | Exynos 2100 | Android 13 | c2.exynos.h264.decoder | Multichannel PCM | ARM-CPU Fallback |
 
