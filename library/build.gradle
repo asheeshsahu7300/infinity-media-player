@@ -68,7 +68,7 @@ afterEvaluate {
 
                 groupId = 'com.github.asheeshsahu7300'
                 artifactId = 'infinity-media-player'
-                version = '1.2.0'
+                version = '1.2.1'
 
                 pom {
                     name = 'Infinity Media Player'

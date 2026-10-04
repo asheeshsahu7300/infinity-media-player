@@ -11,6 +11,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackGroup
@@ -73,7 +74,7 @@ class InfinityPlayer(
     private var measuredDroppedFrames: Long = 0L
     private var measuredEstimatedBitrate: Long = 0L
     private var lastAudioPlayoutTimestampMs: Long = 0L
-    private var measuredAudioLatencyMs: Long = 0L
+    private var measuredAudioLatencyMs: Long? = null
 
     // Track Selector with safe defaults & 4K support
     val trackSelector = DefaultTrackSelector(context).apply {
@@ -162,8 +163,15 @@ class InfinityPlayer(
         .build()
 
     private var currentUrl: String? = null
+    private var currentHeaders: Map<String, String> = emptyMap()
     private var isLiveStream: Boolean = false
     private var telemetryRunnable: Runnable? = null
+
+    // Stateful Recovery Management
+    private var recoveryJob: Runnable? = null
+    private var recoveryStartTimeMs: Long = 0L
+    private var recoveryAttempt: Int = 0
+    private var isRecovering: Boolean = false
 
     // Active Audio Format Cache
     private var activeAudioCodec: String? = null
@@ -182,21 +190,31 @@ class InfinityPlayer(
                 val isBuffering = playbackState == Player.STATE_BUFFERING
                 listeners.forEach { it.onPlaybackStateChanged(isPlaying, isBuffering) }
 
+                if (playbackState == Player.STATE_READY && isPlaying) {
+                    if (isRecovering) {
+                        Log.i(TAG, "Live network stream recovered successfully after attempt #$recoveryAttempt.")
+                        cancelRecovery()
+                    }
+                }
+
                 if (playbackState == Player.STATE_ENDED && isLiveStream) {
                     Log.w(TAG, "Live network stream ended (input EOS). Triggering recovery.")
-                    recoverLiveStream()
+                    triggerRecovery("STATE_ENDED")
                 }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 listeners.forEach { it.onPlaybackStateChanged(isPlaying, exoPlayer.playbackState == Player.STATE_BUFFERING) }
+                if (isPlaying && isRecovering) {
+                    cancelRecovery()
+                }
             }
 
             override fun onTracksChanged(tracks: Tracks) {
                 processTrackChanges(tracks)
             }
 
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            override fun onPlayerError(error: PlaybackException) {
                 Log.e(TAG, "Playback error: ${error.message}", error)
                 if (error.errorCodeName.contains("AUDIO", ignoreCase = true)) {
                     audioSafetyController.recordAcdbError()
@@ -204,6 +222,10 @@ class InfinityPlayer(
                 listeners.forEach {
                     it.onError(error)
                     it.onError(error as Throwable)
+                }
+
+                if (isLiveStream) {
+                    triggerRecovery("ERROR_${error.errorCodeName}")
                 }
             }
         })
@@ -259,6 +281,24 @@ class InfinityPlayer(
                 }
             }
 
+            override fun onVideoFrameProcessingOffset(
+                eventTime: AnalyticsListener.EventTime,
+                totalProcessingOffsetUs: Long,
+                frameCount: Int
+            ) {
+                if (frameCount > 0) {
+                    neuralConcealer?.recordRenderedFrames(frameCount)
+                }
+            }
+
+            override fun onRenderedFirstFrame(
+                eventTime: AnalyticsListener.EventTime,
+                output: Any,
+                renderTimeMs: Long
+            ) {
+                neuralConcealer?.recordRenderedFrames(1)
+            }
+
             override fun onBandwidthEstimate(
                 eventTime: AnalyticsListener.EventTime,
                 totalLoadTimeMs: Int,
@@ -275,7 +315,7 @@ class InfinityPlayer(
                 lastAudioPlayoutTimestampMs = playoutStartSystemTimeMs
                 val now = SystemClock.elapsedRealtime()
                 if (playoutStartSystemTimeMs > 0 && now >= playoutStartSystemTimeMs) {
-                    measuredAudioLatencyMs = now - playoutStartSystemTimeMs
+                    measuredAudioLatencyMs = (now - playoutStartSystemTimeMs).coerceAtLeast(0L)
                 }
             }
         })
@@ -503,10 +543,14 @@ class InfinityPlayer(
     private fun startTelemetryLoop() {
         telemetryRunnable = object : Runnable {
             override fun run() {
-                // NVC Video Telemetry
+                // NVC Telemetry with real source and rendered FPS
+                val sourceFps = exoPlayer.videoFormat?.frameRate ?: 0.0f
                 neuralConcealer?.let { concealer ->
-                    concealer.recordRenderedFrame()
-                    val telemetry = concealer.getTelemetry()
+                    val telemetry = concealer.getTelemetry(
+                        sourceFps = sourceFps,
+                        droppedFrames = measuredDroppedFrames,
+                        currentBitrateKbps = (measuredEstimatedBitrate / 1000).toInt()
+                    )
                     listeners.forEach { it.onNvcTelemetryUpdated(telemetry) }
                 }
 
@@ -518,6 +562,8 @@ class InfinityPlayer(
                     activeAudioCodec?.let { "MediaCodec ($it)" } ?: "DefaultMediaCodec"
                 }
 
+                val latencyOrNull = if (lastAudioPlayoutTimestampMs > 0L) measuredAudioLatencyMs else null
+
                 val audioTelem = AudioTelemetry(
                     codec = activeAudioCodec,
                     sampleRate = activeAudioSampleRate,
@@ -525,9 +571,9 @@ class InfinityPlayer(
                     outputMode = effectiveMode,
                     decoderName = resolvedDecoder,
                     underruns = measuredAudioUnderrunCount,
-                    droppedAudioFrames = measuredDroppedFrames,
+                    droppedAudioFrames = 0L,
                     acdbErrorCount = audioSafetyController.acdbErrorCount,
-                    audioLatencyMs = measuredAudioLatencyMs,
+                    audioLatencyMs = latencyOrNull,
                     bitrateEstimate = measuredEstimatedBitrate,
                     isSafetyLayerActive = audioSafetyController.isSafetyActive
                 )
@@ -543,7 +589,9 @@ class InfinityPlayer(
 
     fun play(url: String, headers: Map<String, String> = emptyMap(), isLive: Boolean = true) {
         this.currentUrl = url
+        this.currentHeaders = headers
         this.isLiveStream = isLive
+        cancelRecovery()
 
         val mediaSourceFactory = InfinityMediaSourceFactory.create(context, headers, config)
         val mediaItem = MediaItem.fromUri(Uri.parse(url))
@@ -555,6 +603,7 @@ class InfinityPlayer(
     }
 
     fun pause() {
+        cancelRecovery()
         exoPlayer.pause()
     }
 
@@ -563,10 +612,12 @@ class InfinityPlayer(
     }
 
     fun stop() {
+        cancelRecovery()
         exoPlayer.stop()
     }
 
     fun release() {
+        cancelRecovery()
         telemetryRunnable?.let { mainHandler.removeCallbacks(it) }
         exoPlayer.release()
         neuralConcealer?.release()
@@ -582,13 +633,55 @@ class InfinityPlayer(
         listeners.remove(listener)
     }
 
-    private fun recoverLiveStream() {
+    private fun cancelRecovery() {
+        recoveryJob?.let { mainHandler.removeCallbacks(it) }
+        recoveryJob = null
+        isRecovering = false
+        recoveryAttempt = 0
+        recoveryStartTimeMs = 0L
+    }
+
+    private fun triggerRecovery(reason: String) {
+        if (!isLiveStream) return
         val url = currentUrl ?: return
-        Log.i(TAG, "Executing silent reconnect for live network stream: $url")
-        play(url, isLive = true)
-        listeners.forEach {
-            it.onLiveStreamRecovered()
-            it.onRecoveredFromStall(300L)
+
+        val now = SystemClock.elapsedRealtime()
+        if (!isRecovering) {
+            isRecovering = true
+            recoveryStartTimeMs = now
+            recoveryAttempt = 0
+            Log.i(TAG, "Initiating live network stream recovery for $url (reason: $reason, timeout: ${config.reconnectTimeoutMs}ms)")
+        } else {
+            val elapsed = now - recoveryStartTimeMs
+            if (elapsed > config.reconnectTimeoutMs) {
+                Log.e(TAG, "Live network stream recovery exceeded timeout limit (${elapsed}ms > ${config.reconnectTimeoutMs}ms). Aborting retries.")
+                cancelRecovery()
+                listeners.forEach {
+                    it.onError(PlaybackException("Live stream reconnection timed out after ${elapsed}ms", null, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT))
+                }
+                return
+            }
         }
+
+        recoveryAttempt++
+        val backoffDelayMs = (recoveryAttempt * 400L).coerceAtMost(2500L)
+        Log.w(TAG, "Scheduling recovery attempt #$recoveryAttempt in ${backoffDelayMs}ms...")
+
+        recoveryJob?.let { mainHandler.removeCallbacks(it) }
+        recoveryJob = Runnable {
+            Log.i(TAG, "Executing recovery attempt #$recoveryAttempt for: $url with ${currentHeaders.size} persistent headers")
+            val mediaSourceFactory = InfinityMediaSourceFactory.create(context, currentHeaders, config)
+            val mediaItem = MediaItem.fromUri(Uri.parse(url))
+            val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
+            exoPlayer.setMediaSource(mediaSource)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+
+            listeners.forEach {
+                it.onLiveStreamRecovered()
+                it.onRecoveredFromStall(backoffDelayMs)
+            }
+        }
+        mainHandler.postDelayed(recoveryJob!!, backoffDelayMs)
     }
 }

@@ -10,9 +10,9 @@ data class AudioTelemetry(
     val outputMode: AudioOutputMode,
     val decoderName: String?,
     val underruns: Int,
-    val droppedAudioFrames: Long,
+    val droppedAudioFrames: Long? = 0L,
     val acdbErrorCount: Int,
-    val audioLatencyMs: Long,
+    val audioLatencyMs: Long?,
     val bitrateEstimate: Long = 0L,
     val isSafetyLayerActive: Boolean = true
 ) {

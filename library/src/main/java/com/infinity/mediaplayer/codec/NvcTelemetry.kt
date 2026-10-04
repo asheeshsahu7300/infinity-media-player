@@ -5,9 +5,12 @@ data class NvcTelemetry(
     val isNnapiActive: Boolean = false,
     val instantFps: Float = 0.0f,
     val avgFps: Float = 0.0f,
+    val sourceFps: Float = 0.0f,
+    val renderedFps: Float = 0.0f,
     val bitrateKbps: Int = 0,
     val avgInferenceLatencyMs: Float = 0.0f,
     val concealedFrames: Long = 0L,
+    val droppedFrames: Long = 0L,
     val activeFrames: Long = 0L,
     val executionProvider: String = "CPU"
 )
