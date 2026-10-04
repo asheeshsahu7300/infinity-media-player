@@ -1,4 +1,4 @@
-# 🚀 Infinity Media Player for Android
+# Infinity Media Player for Android
 
 [![JitPack](https://jitpack.io/v/asheeshsahu7300/infinity-media-player.svg)](https://jitpack.io/#asheeshsahu7300/infinity-media-player)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -6,32 +6,32 @@
 [![Media3](https://img.shields.io/badge/Media3-1.4.1-orange.svg)](https://developer.android.com/media/media3)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-NNAPI%20%7C%20ARM-blueviolet.svg)](https://onnxruntime.ai/)
 
-An all-in-one, ultra-resilient Android Media Player library combining **Google Media3 (ExoPlayer)** with an embedded **NVC-Live Neural Video Latent Concealer** (ONNX Runtime / NNAPI), designed specifically for seamless live IPTV streaming, zero-stall network hysteresis, and Qualcomm ACDB hardware audio safety.
+An all-in-one, resilient Android Media Player library combining Google Media3 (ExoPlayer) with an embedded NVC-Live Neural Video Latent Concealer (ONNX Runtime / Android NNAPI), designed specifically for seamless live IPTV streaming, zero-stall network hysteresis, and Qualcomm ACDB hardware audio safety.
 
 ---
 
-## ✨ Features
+## Features
 
-- **🧠 NVC-Live Neural Video Latency & Packet Loss Concealment**:
+- **NVC-Live Neural Video Latency and Packet Loss Concealment**:
   - Embedded ONNX Runtime engine utilizing Android NNAPI hardware acceleration (NPU/DSP) with automatic ARM multi-threaded CPU fallback.
-  - Conceals missing/corrupted video frames in latent space without stalling the render pipeline.
+  - Conceals missing and corrupted video frames in latent space without stalling the render pipeline.
   - Real-time telemetry monitoring: Instant FPS, bitrate (kbps), inference latency (ms), and frame concealment counter.
 
-- **🔊 Qualcomm ADSP & Dirac Hardware Audio Safety**:
-  - Resolves Qualcomm ACDB `acdb_loader_adsp_set_audio_cal` errors (`result=-100` on topology `0x10012d00`, apptypes `0x11136`/`0x11130`).
+- **Qualcomm ADSP and Dirac Hardware Audio Safety**:
+  - Resolves Qualcomm ACDB `acdb_loader_adsp_set_audio_cal` errors (`result=-100` on topology `0x10012d00`, apptypes `0x11136` and `0x11130`).
   - Automatically downmixes multichannel audio (AC-3 5.1, E-AC3, AAC 5.1) to clean 16-bit 48kHz stereo PCM before feeding hardware AudioTrack.
   - Prevents audio packet drops, stutter, and device crash on OnePlus, Oppo, Realme, Xiaomi, and Samsung devices.
 
-- **⚡ Zero-Drop Live IPTV Hysteresis Buffering**:
+- **Zero-Drop Live IPTV Hysteresis Buffering**:
   - Continuous TCP socket consumption tuned with low-hysteresis min/max buffers to prevent edge server write timeouts and premature `input EOS` drops.
   - Silent auto-recovery watchdog for live stream drops.
 
-- **📡 Robust MPEG-TS Extractor**:
+- **Robust MPEG-TS Extractor**:
   - Configured with `FLAG_ALLOW_NON_IDR_KEYFRAMES`, single PMT extraction, and splice info tolerance for instant stream start.
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Step 1: Add JitPack to your project
 
@@ -59,7 +59,7 @@ dependencies {
 
 ---
 
-## 🚀 Quick Start (Kotlin)
+## Quick Start (Kotlin)
 
 ### 1. In your Layout XML
 
@@ -102,7 +102,7 @@ class MainActivity : AppCompatActivity() {
         player = InfinityPlayer(this, config)
         playerView.attachPlayer(player)
 
-        // 2. Listen to real-time telemetry & events
+        // 2. Listen to real-time telemetry and events
         player.addListener(object : InfinityPlayerListener {
             override fun onTelemetryUpdated(telemetry: NvcTelemetry) {
                 // telemetry.instantFps -> 27.5 fps
@@ -133,25 +133,43 @@ class MainActivity : AppCompatActivity() {
 
 ---
 
-## 🛠️ Architecture
+## Configuration Reference
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `minBufferMs` | `12000L` | Minimum buffer threshold before resuming playback data consumption. |
+| `maxBufferMs` | `15000L` | Maximum forward buffer limit to prevent live stream TCP edge socket timeouts. |
+| `bufferForPlaybackMs` | `1500L` | Buffer required to start initial rendering. |
+| `bufferForPlaybackAfterRebufferMs` | `2500L` | Buffer required to resume playback after re-buffering. |
+| `enableNvcConcealment` | `true` | Enables ONNX Runtime NNAPI/ARM latent frame concealment. |
+| `forceStereoPcmAudio` | `true` | Downmixes AC3/multichannel to stereo PCM to prevent Qualcomm DSP HAL crashes. |
+| `lowLatencyMpegTs` | `true` | Optimizes TsExtractor flags for immediate PTS/DTS sync on live streams. |
+| `reconnectTimeoutMs` | `15000L` | Maximum duration before initiating silent session recovery. |
+
+---
+
+## Architecture
 
 ```
 Infinity Media Player
- ├── core/
- │    ├── InfinityPlayer.kt           <- High-level player orchestrator
- │    ├── InfinityPlayerConfig.kt     <- Configuration builder (buffers, audio, codec)
- │    ├── InfinityLoadControl.kt      <- Low-hysteresis anti-stall buffer controller
- │    ├── InfinityMediaSourceFactory.kt <- MPEG-TS & OkHttp live streaming factory
- │    └── InfinityPlayerListener.kt   <- Telemetry & lifecycle callbacks
- ├── codec/
- │    ├── NvcNeuralConcealer.kt       <- ONNX Runtime NNAPI/CPU latent concealer
- │    └── NvcTelemetry.kt             <- Real-time diagnostics model
- └── ui/
-      └── InfinityPlayerView.kt       <- Clean Media3 Surface/Texture wrapper
+ |
+ |-- core/
+ |    |-- InfinityPlayer.kt             High-level player orchestrator
+ |    |-- InfinityPlayerConfig.kt       Configuration builder (buffers, audio, codec)
+ |    |-- InfinityLoadControl.kt        Low-hysteresis anti-stall buffer controller
+ |    |-- InfinityMediaSourceFactory.kt MPEG-TS and OkHttp live streaming factory
+ |    `-- InfinityPlayerListener.kt     Telemetry and lifecycle callbacks
+ |
+ |-- codec/
+ |    |-- NvcNeuralConcealer.kt         ONNX Runtime NNAPI/CPU latent concealer
+ |    `-- NvcTelemetry.kt               Real-time diagnostics model
+ |
+ `-- ui/
+      `-- InfinityPlayerView.kt         Media3 Surface/Texture wrapper
 ```
 
 ---
 
-## 📄 License
+## License
 
 This library is distributed under the [MIT License](LICENSE).
