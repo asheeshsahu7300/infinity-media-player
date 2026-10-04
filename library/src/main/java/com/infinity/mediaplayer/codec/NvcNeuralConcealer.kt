@@ -83,6 +83,13 @@ class NvcNeuralConcealer(private val context: Context) {
         }
     }
 
+    fun updateFps(fps: Float) {
+        currentFps = fps
+        if (fps > 0) {
+            activeFrameCounter.addAndGet((fps * 0.35f).toLong().coerceAtLeast(1L))
+        }
+    }
+
     fun concealDroppedFrame(previousLatent: FloatArray): FloatArray? {
         val sess = session ?: return null
         val ortEnv = env ?: return null
@@ -91,18 +98,20 @@ class NvcNeuralConcealer(private val context: Context) {
         return try {
             val shape = longArrayOf(1, LATENT_DIM.toLong())
             val buffer = FloatBuffer.wrap(previousLatent)
-            val tensor = OnnxTensor.createTensor(ortEnv, buffer, shape)
+            OnnxTensor.createTensor(ortEnv, buffer, shape).use { tensor ->
+                sess.run(mapOf("latent_prev" to tensor)).use { results ->
+                    val outputTensor = results[0] as OnnxTensor
+                    @Suppress("UNCHECKED_CAST")
+                    val concealed = (outputTensor.value as Array<FloatArray>)[0]
 
-            val results = sess.run(mapOf("latent_prev" to tensor))
-            val outputTensor = results[0] as OnnxTensor
-            val concealed = (outputTensor.value as Array<FloatArray>)[0]
+                    val elapsedMs = (SystemClock.elapsedRealtimeNanos() - startTime) / 1_000_000.0
+                    totalInferenceTimeMs += elapsedMs
+                    inferenceRuns++
+                    concealedFrameCounter.incrementAndGet()
 
-            val elapsedMs = (SystemClock.elapsedRealtimeNanos() - startTime) / 1_000_000.0
-            totalInferenceTimeMs += elapsedMs
-            inferenceRuns++
-            concealedFrameCounter.incrementAndGet()
-
-            concealed
+                    concealed
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Concealment inference error: ${e.message}")
             null

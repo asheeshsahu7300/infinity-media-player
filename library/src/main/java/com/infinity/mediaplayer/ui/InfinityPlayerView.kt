@@ -5,6 +5,7 @@ import android.util.AttributeSet
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
 import com.infinity.mediaplayer.core.InfinityPlayer
@@ -33,6 +34,14 @@ class InfinityPlayerView @JvmOverloads constructor(
 
     fun detachPlayer() {
         playerView.player = null
+    }
+
+    fun setContentFit(contentFit: String) {
+        when (contentFit.lowercase()) {
+            "cover" -> playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            "fill" -> playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+            else -> playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
     }
 
     fun setSubtitleTextSize(sp: Float) {

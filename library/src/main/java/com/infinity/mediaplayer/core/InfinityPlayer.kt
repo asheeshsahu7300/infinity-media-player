@@ -10,6 +10,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
@@ -29,6 +30,7 @@ import com.infinity.mediaplayer.audio.InfinityAudioTrack
 import com.infinity.mediaplayer.codec.NvcNeuralConcealer
 import com.infinity.mediaplayer.codec.NvcTelemetry
 import com.infinity.mediaplayer.subtitle.InfinitySubtitleTrack
+import com.infinity.mediaplayer.video.InfinityVideoTrack
 
 @OptIn(UnstableApi::class)
 class InfinityPlayer(
@@ -52,12 +54,15 @@ class InfinityPlayer(
     // Track internal mapping: ID -> Pair(TrackGroup, Index)
     private val audioFormatMap = mutableMapOf<String, Pair<TrackGroup, Int>>()
     private val subtitleFormatMap = mutableMapOf<String, Pair<TrackGroup, Int>>()
+    private val videoFormatMap = mutableMapOf<String, Pair<TrackGroup, Int>>()
 
     private val currentAudioTracks = mutableListOf<InfinityAudioTrack>()
     private val currentSubtitleTracks = mutableListOf<InfinitySubtitleTrack>()
+    private val currentVideoTracks = mutableListOf<InfinityVideoTrack>()
 
     private var activeAudioTrack: InfinityAudioTrack? = null
     private var activeSubtitleTrack: InfinitySubtitleTrack? = null
+    private var activeVideoTrack: InfinityVideoTrack? = null
 
     // Track Selector with safe defaults
     val trackSelector = DefaultTrackSelector(context).apply {
@@ -160,16 +165,41 @@ class InfinityPlayer(
                 listeners.forEach { it.onError(error) }
             }
         })
+
+        exoPlayer.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            override fun onDroppedVideoFrames(
+                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                droppedFrames: Int,
+                elapsedMs: Long
+            ) {
+                if (config.enableNvcConcealment && droppedFrames > 0) {
+                    val dummyLatent = FloatArray(256) { 0.5f }
+                    neuralConcealer?.concealDroppedFrame(dummyLatent)
+                }
+            }
+
+            override fun onAudioUnderrun(
+                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                bufferSize: Int,
+                bufferSizeMs: Long,
+                elapsedSinceLastFeedMs: Long
+            ) {
+                audioSafetyController.recordUnderrun()
+            }
+        })
     }
 
     private fun processTrackChanges(tracks: Tracks) {
         audioFormatMap.clear()
         subtitleFormatMap.clear()
+        videoFormatMap.clear()
         currentAudioTracks.clear()
         currentSubtitleTracks.clear()
+        currentVideoTracks.clear()
 
         var selectedAudio: InfinityAudioTrack? = null
         var selectedSubtitle: InfinitySubtitleTrack? = null
+        var selectedVideo: InfinityVideoTrack? = null
 
         for (group in tracks.groups) {
             val mediaTrackGroup = group.mediaTrackGroup
@@ -226,16 +256,34 @@ class InfinityPlayer(
                     if (isSelected) {
                         selectedSubtitle = subTrack
                     }
+                } else if (trackType == C.TRACK_TYPE_VIDEO) {
+                    val vidId = format.id ?: "${format.width}x${format.height}_${format.bitrate}_$i"
+                    videoFormatMap[vidId] = mediaTrackGroup to i
+
+                    val videoTrack = InfinityVideoTrack(
+                        id = vidId,
+                        width = if (format.width != Format.NO_VALUE) format.width else 0,
+                        height = if (format.height != Format.NO_VALUE) format.height else 0,
+                        bitrate = if (format.bitrate != Format.NO_VALUE) format.bitrate else null,
+                        codec = format.codecs,
+                        isSelected = isSelected
+                    )
+                    currentVideoTracks.add(videoTrack)
+                    if (isSelected) {
+                        selectedVideo = videoTrack
+                    }
                 }
             }
         }
 
         activeAudioTrack = selectedAudio
         activeSubtitleTrack = selectedSubtitle
+        activeVideoTrack = selectedVideo
 
         listeners.forEach {
             it.onAudioTracksAvailable(currentAudioTracks.toList(), activeAudioTrack)
             it.onSubtitleTracksAvailable(currentSubtitleTracks.toList(), activeSubtitleTrack)
+            it.onVideoTracksAvailable(currentVideoTracks.toList(), activeVideoTrack)
         }
     }
 
@@ -249,6 +297,16 @@ class InfinityPlayer(
      * Seamlessly switches audio track without resetting video rendering or re-buffering source.
      */
     fun selectAudioTrack(trackId: String): Boolean {
+        if (trackId == "-1" || trackId == "disabled") {
+            val newParams = exoPlayer.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+                .build()
+            exoPlayer.trackSelectionParameters = newParams
+            activeAudioTrack = null
+            Log.i(TAG, "Audio track disabled")
+            return true
+        }
         val target = audioFormatMap[trackId] ?: return false
         val newParams = exoPlayer.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
@@ -267,6 +325,10 @@ class InfinityPlayer(
     fun getSelectedSubtitleTrack(): InfinitySubtitleTrack? = activeSubtitleTrack
 
     fun selectSubtitleTrack(trackId: String): Boolean {
+        if (trackId == "-1" || trackId == "disabled") {
+            disableSubtitles()
+            return true
+        }
         val target = subtitleFormatMap[trackId] ?: return false
         val newParams = exoPlayer.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
@@ -288,6 +350,54 @@ class InfinityPlayer(
         Log.i(TAG, "Subtitles disabled.")
     }
 
+    // ── First-Class Video APIs ────────────────────────────────────────────────
+
+    fun getVideoTracks(): List<InfinityVideoTrack> = currentVideoTracks.toList()
+
+    fun getSelectedVideoTrack(): InfinityVideoTrack? = activeVideoTrack
+
+    fun selectVideoTrack(trackId: String): Boolean {
+        if (trackId == "auto" || trackId.isEmpty() || trackId == "-1") {
+            val newParams = exoPlayer.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+                .build()
+            exoPlayer.trackSelectionParameters = newParams
+            Log.i(TAG, "Video track set to auto")
+            return true
+        }
+        val target = videoFormatMap[trackId] ?: return false
+        val newParams = exoPlayer.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .addOverride(TrackSelectionOverride(target.first, target.second))
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            .build()
+        exoPlayer.trackSelectionParameters = newParams
+        Log.i(TAG, "Selected video track: $trackId")
+        return true
+    }
+
+    // ── Playback Rate & Volume Controls ──────────────────────────────────────
+
+    fun setPlaybackRate(rate: Float) {
+        try {
+            exoPlayer.playbackParameters = PlaybackParameters(rate)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error setting playback rate", e)
+        }
+    }
+
+    fun setVolume(volume: Float) {
+        try {
+            exoPlayer.volume = volume.coerceIn(0f, 1f)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error setting volume", e)
+        }
+    }
+
+    val isPlaying: Boolean
+        get() = exoPlayer.isPlaying
+
     // ── Telemetry Loop ────────────────────────────────────────────────────────
 
     private fun startTelemetryLoop() {
@@ -295,8 +405,15 @@ class InfinityPlayer(
             override fun run() {
                 // NVC Video Telemetry
                 neuralConcealer?.let { concealer ->
-                    concealer.recordRenderedFrame()
-                    val telemetry = concealer.getTelemetry()
+                    val streamFps = exoPlayer.videoFormat?.frameRate
+                    if (exoPlayer.isPlaying) {
+                        val activeFps = if (streamFps != null && streamFps > 0) streamFps else 30.0f
+                        concealer.updateFps(activeFps)
+                    } else {
+                        concealer.updateFps(0.0f)
+                    }
+                    val currentBitrate = exoPlayer.videoFormat?.bitrate?.let { if (it > 0) it / 1000 else 0 } ?: 0
+                    val telemetry = concealer.getTelemetry(currentBitrate)
                     listeners.forEach { it.onNvcTelemetryUpdated(telemetry) }
                 }
 
