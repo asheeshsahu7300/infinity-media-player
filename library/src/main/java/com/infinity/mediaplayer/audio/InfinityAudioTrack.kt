@@ -14,6 +14,9 @@ data class InfinityAudioTrack(
     val isSelected: Boolean = false,
     val isSupported: Boolean = true
 ) {
+    val isMultichannel: Boolean
+        get() = channelCount > 2
+
     val displayTitle: String
         get() {
             if (!label.isNullOrBlank()) return label

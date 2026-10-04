@@ -39,6 +39,9 @@ class AudioSafetyController(private val context: Context) {
     var acdbErrorCount = 0
         private set
 
+    val isSafetyActive: Boolean
+        get() = isQualcommDevice() || hasDiracService()
+
     fun recordUnderrun() {
         underrunCount++
     }

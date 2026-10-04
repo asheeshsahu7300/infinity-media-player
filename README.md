@@ -1,87 +1,56 @@
-# Infinity Media Player for Android
+# Infinity Media Player (Android)
 
-[![JitPack](https://jitpack.io/v/asheeshsahu7300/infinity-media-player.svg)](https://jitpack.io/#asheeshsahu7300/infinity-media-player)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Android Min SDK](https://img.shields.io/badge/Min%20SDK-24-brightgreen.svg)](https://developer.android.com)
-[![Media3](https://img.shields.io/badge/Media3-1.4.1-orange.svg)](https://developer.android.com/media/media3)
-[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-NNAPI%20%7C%20ARM-blueviolet.svg)](https://onnxruntime.ai/)
-
-An all-in-one, resilient Android Media Player library combining Google Media3 (ExoPlayer) with an embedded NVC-Live Neural Video Latent Concealer (ONNX Runtime / Android NNAPI), a specialized Audio Safety Controller with dynamic Qualcomm ACDB mitigation, first-class audio track switching without video pipeline resets, and PTS-synchronized subtitle rendering.
+High-performance, resilient Android media player engine powered by AndroidX Media3 (ExoPlayer), featuring Neural Video Latent Concealment (NVC-Live), Qualcomm ACDB audio HAL safety, low-latency live network streaming buffering, seamless video/audio track switching, and presentation-timestamped (PTS) subtitles.
 
 ---
 
-## Architecture Overview
+## Architectural Highlights
+
+- **NVC-Live Neural Video Latent Concealment**: Neural recovery engine running quantized ONNX Runtime models via Android Neural Networks API (NNAPI) with automatic fallback to multi-threaded ARM CPU execution. Conceals missing video macroblocks and latent representations during network dropouts without stalling the presentation timeline.
+- **Hardware-Aware Audio Safety Controller**: Identifies Qualcomm Snapdragon chipsets and Dirac vendor audio frameworks (OnePlus, Oppo, Realme, Xiaomi). Proactively prevents fatal Hexagon ADSP ACDB audio calibration crashes (`result=-100` on topology `0x10012d00`) by enforcing standard 16-bit 48 kHz stereo PCM downmixing through a dedicated safe `DefaultAudioSink`.
+- **First-Class Seamless Track Switching**: Seamlessly change video resolutions (1080p, 720p, 480p), audio languages, and subtitle tracks on the fly during active playback without video pipeline re-initialization or network rebuffering.
+- **PTS-Synchronized Subtitle Engine**: Subtitle cues (WebVTT, SubRip SRT, TTML, ASS/SSA) stay strictly synchronized to the media presentation timestamp clock, preventing subtitle drift during buffering recovery and network reconnects.
+- **Accurate Telemetry Pipeline**: Built on Media3 `AnalyticsListener` capturing real hardware decoder names, actual audio buffer underruns, dropped video frame counts, dynamic bandwidth estimates, and millisecond-level playout latencies.
+- **Low-Hysteresis Anti-Stall Buffer Control**: Purpose-built `InfinityLoadControl` configured for low-latency live network streaming (1.5s initial buffer, 2.5s rebuffer threshold) to prevent buffer bloat and drift from the live edge.
+
+---
+
+## Architecture Diagram
 
 ```
 Infinity Media Player
- |
- |-- core/
- |    |-- InfinityPlayer.kt             Unified player orchestrator & public API
- |    |-- InfinityPlayerConfig.kt       Configuration builder (buffers, audio mode, languages)
- |    |-- InfinityLoadControl.kt        Low-hysteresis anti-stall buffer controller
- |    |-- InfinityMediaSourceFactory.kt MPEG-TS and OkHttp live streaming factory
- |    `-- InfinityPlayerListener.kt     Lifecycle, telemetry, and track callbacks
- |
- |-- audio/
- |    |-- InfinityAudioTrack.kt         Audio track model (id, language, codec, channels)
- |    |-- AudioOutputMode.kt            AUTO, STEREO_PCM, MULTICHANNEL_PCM, PASSTHROUGH
- |    |-- AudioSafetyController.kt      Hardware detector & dynamic Qualcomm ACDB mitigation
- |    `-- AudioTelemetry.kt             Real-time audio diagnostics (underruns, latency, ACDB safety)
- |
- |-- subtitle/
- |    |-- InfinitySubtitleTrack.kt      Subtitle model (id, language, forced, CC, default)
- |    `-- Subtitle timeline sync        PTS-synchronized cue rendering via SubtitleView
- |
- |-- codec/
- |    |-- NvcNeuralConcealer.kt         ONNX Runtime NNAPI/ARM latent frame concealer
- |    `-- NvcTelemetry.kt               Real-time neural diagnostics model
- |
- `-- ui/
-      `-- InfinityPlayerView.kt         Media3 Surface/Texture wrapper with SubtitleView
+│
+├── Video Pipeline
+│   ├── Media3 ExoPlayer Video Track Selection
+│   ├── Hardware MediaCodec (AVC/H.264, HEVC/H.265)
+│   ├── NVC Neural Latent Concealer (ONNX Runtime / NNAPI)
+│   └── Android Surface Rendering
+│
+├── Audio Pipeline
+│   ├── Audio Track Selection (Languages & Codecs)
+│   ├── Audio Safety Controller (Qualcomm / Dirac Detection)
+│   ├── Configurable AudioOutputMode (AUTO / STEREO_PCM / MULTICHANNEL / PASSTHROUGH)
+│   ├── Media3 Safe AudioSink (16-bit 48 kHz PCM downmix)
+│   └── Device AudioTrack & Hardware HAL
+│
+├── Subtitle Subsystem
+│   ├── Embedded & Sidecar Subtitle Extractor (WebVTT, SRT, TTML, ASS/SSA)
+│   ├── PTS Timeline Synchronization Clock
+│   └── InfinityPlayerView Subtitle Rendering Layer
+│
+└── Telemetry & Diagnostics
+    ├── AnalyticsListener Hardware Measurements
+    ├── Audio Underrun & ACDB Anomaly Tracking
+    ├── Live FPS, Dropped Frames & Concealment Counts
+    └── Bitrate Estimation & Buffer Hysteresis Monitoring
 ```
-
----
-
-## Features
-
-### 1. Audio Engine and Safety Controller
-- **First-Class Audio Track Switching**:
-  - Dynamically discovers all audio tracks (`InfinityAudioTrack`) with language, codec, channel count, sample rate, and flags.
-  - Switches audio tracks seamlessly via Media3 `TrackSelectionOverride` without interrupting video rendering or re-buffering network streams.
-- **Audio Safety Layer & Output Modes**:
-  - `AudioOutputMode.AUTO`: Automatically detects Qualcomm Snapdragon SoCs and Dirac equalizer services (OnePlus, Oppo, Realme, Xiaomi). Falls back to safe 16-bit 48kHz Stereo PCM to prevent ACDB HAL crash loops (`acdb_loader_adsp_set_audio_cal` error `result=-100` on topology `0x10012d00`).
-  - `AudioOutputMode.STEREO_PCM`: Forced stereo downmix for maximum compatibility.
-  - `AudioOutputMode.MULTICHANNEL_PCM`: Uncompressed 5.1/7.1 software decoding.
-  - `AudioOutputMode.PASSTHROUGH`: Direct bitstream passthrough (AC-3, E-AC3, DTS) for external HDMI AVR sound systems.
-- **Audio Telemetry (V2)**:
-  - Continuously monitors active audio codec, sample rate, channel count, active decoder name, audio buffer underruns, and ACDB safety intervention count.
-
-### 2. Subtitle Engine
-- **PTS-Synchronized Timeline**:
-  - Directly maps subtitle cues to playback position (`currentPosition`) instead of timer delays.
-  - Supports WebVTT, SRT, TTML, and SSA/ASS streams.
-- **Track Selection and Metadata**:
-  - Preserves closed-caption (`isClosedCaption`) and forced (`isForced`) attributes.
-  - Automatic language preference: Forced -> Preferred Language -> Default Track -> Disabled.
-
-### 3. NVC-Live Neural Video Concealment
-- **Hardware Acceleration**:
-  - Embedded ONNX Runtime utilizing Android NNAPI (NPU/DSP) with automatic multi-threaded ARM CPU fallback.
-  - Conceals missing or damaged video frames in latent space to prevent playback stutter during network packet drops.
-- **Live Telemetry**:
-  - Reports Instant FPS, average FPS, network bitrate (kbps), and neural inference latency (ms).
-
-### 4. Zero-Drop Live Network Streaming Buffering
-- **Anti-Stall Hysteresis**:
-  - `InfinityLoadControl` maintains a tight 3s min/max buffer hysteresis to prevent live streaming TCP edge servers from timing out and sending premature `input EOS` disconnects.
 
 ---
 
 ## Installation
 
-### Step 1: Add JitPack to your project
-
-In your root `settings.gradle` or root `build.gradle`:
+### 1. Add Maven Repository
+Add JitPack to your root `settings.gradle` or root `build.gradle`:
 
 ```groovy
 dependencyResolutionManagement {
@@ -93,154 +62,159 @@ dependencyResolutionManagement {
 }
 ```
 
-### Step 2: Add the dependency
-
-In your app-level `build.gradle`:
+### 2. Add Dependency
+Add the library to your module `build.gradle`:
 
 ```groovy
 dependencies {
-    implementation 'com.github.asheeshsahu7300:infinity-media-player:1.2.0'
+    implementation 'com.github.asheeshsahu7300:infinity-media-player:v1.2.0'
 }
 ```
 
 ---
 
-## Complete Kotlin Usage Example
+## Usage Guide
 
-### 1. In your Layout XML
-
-```xml
-<com.infinity.mediaplayer.ui.InfinityPlayerView
-    android:id="@+id/playerView"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent" />
-```
-
-### 2. In your Activity or Fragment
+### 1. Initialize Player with Configuration
 
 ```kotlin
-import android.os.Bundle
-import android.util.Log
-import androidx.appcompat.app.AppCompatActivity
-import com.infinity.mediaplayer.audio.AudioOutputMode
-import com.infinity.mediaplayer.audio.AudioTelemetry
-import com.infinity.mediaplayer.audio.InfinityAudioTrack
-import com.infinity.mediaplayer.codec.NvcTelemetry
-import com.infinity.mediaplayer.core.InfinityPlayer
-import com.infinity.mediaplayer.core.InfinityPlayerConfig
-import com.infinity.mediaplayer.core.InfinityPlayerListener
-import com.infinity.mediaplayer.subtitle.InfinitySubtitleTrack
-import com.infinity.mediaplayer.ui.InfinityPlayerView
+val config = InfinityPlayerConfig.Builder()
+    .setPreferredAudioLanguages(listOf("hi", "en"))
+    .setPreferredSubtitleLanguages(listOf("en", "hi"))
+    .setAudioOutputMode(AudioOutputMode.AUTO)
+    .setBufferHysteresis(minMs = 12000L, maxMs = 15000L)
+    .setBufferForPlayback(playbackMs = 1500L, rebufferMs = 2500L)
+    .setEnableNvcConcealment(true)
+    .setLowLatencyMpegTs(true)
+    .build()
 
-class MainActivity : AppCompatActivity() {
+val player = InfinityPlayer(context, config)
+```
 
-    private lateinit var player: InfinityPlayer
-    private lateinit var playerView: InfinityPlayerView
+### 2. Bind View and Playback
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+```kotlin
+val playerView = findViewById<InfinityPlayerView>(R.id.player_view)
+playerView.attachPlayer(player)
 
-        playerView = findViewById(R.id.playerView)
+player.play(
+    url = "https://example.com/live/stream.ts",
+    headers = mapOf("User-Agent" to "InfinityMediaPlayer/1.2"),
+    isLive = true
+)
+```
 
-        // 1. Configure Player options
-        val config = InfinityPlayerConfig.Builder()
-            .setEnableNvcConcealment(true)
-            .setAudioOutputMode(AudioOutputMode.AUTO) // Qualcomm ACDB safety
-            .setPreferredAudioLanguages(listOf("hi", "en", "ta"))
-            .setPreferredSubtitleLanguages(listOf("en", "hi"))
-            .setBufferHysteresis(minMs = 12000L, maxMs = 15000L)
-            .build()
+### 3. Video Track Discovery & Resolution Switching
 
-        player = InfinityPlayer(this, config)
-        playerView.attachPlayer(player)
-
-        // 2. Attach Telemetry and Track Listeners
-        player.addListener(object : InfinityPlayerListener {
-            override fun onAudioTracksAvailable(
-                tracks: List<InfinityAudioTrack>,
-                selectedTrack: InfinityAudioTrack?
-            ) {
-                tracks.forEach { track ->
-                    Log.i("AudioTracks", "${track.displayTitle} (Selected: ${track.isSelected})")
-                }
-            }
-
-            override fun onSubtitleTracksAvailable(
-                tracks: List<InfinitySubtitleTrack>,
-                selectedTrack: InfinitySubtitleTrack?
-            ) {
-                tracks.forEach { sub ->
-                    Log.i("Subtitles", "${sub.displayTitle} (Selected: ${sub.isSelected})")
-                }
-            }
-
-            override fun onAudioTelemetryUpdated(telemetry: AudioTelemetry) {
-                // telemetry.codec -> "audio/mp4a-latm"
-                // telemetry.outputMode -> STEREO_PCM
-                // telemetry.underruns -> 0
-                // telemetry.acdbErrorCount -> 0
-            }
-
-            override fun onNvcTelemetryUpdated(telemetry: NvcTelemetry) {
-                // telemetry.instantFps -> 29.8
-                // telemetry.isNnapiActive -> true
-                // telemetry.avgInferenceLatencyMs -> 3.2ms
-            }
-
-            override fun onLiveStreamRecovered() {
-                Log.w("Player", "Live stream connection restored silently.")
-            }
-        })
-
-        // 3. Play stream
-        player.play(
-            url = "http://example.com/live/stream.ts",
-            headers = mapOf("User-Agent" to "InfinityPlayer/1.0"),
-            isLive = true
-        )
-    }
-
-    // Audio Track Switching Example
-    fun switchAudio(trackId: String) {
-        player.selectAudioTrack(trackId) // Seamless: video continues uninterrupted
-    }
-
-    // Subtitle Control Example
-    fun switchSubtitle(subtitleId: String) {
-        player.selectSubtitleTrack(subtitleId)
-    }
-
-    fun turnOffSubtitles() {
-        player.disableSubtitles()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        player.release()
-    }
+```kotlin
+// Retrieve available video tracks
+val videoTracks: List<InfinityVideoTrack> = player.getVideoTracks()
+videoTracks.forEach { track ->
+    Log.d("Video", "ID: ${track.id}, Resolution: ${track.resolutionLabel}, Bitrate: ${track.bitrate}")
 }
+
+// Seamlessly switch to 720p or 1080p without restarting playback
+player.selectVideoTrack(targetTrackId)
+
+// Restore adaptive bitrate switching
+player.setAutoVideoTrack()
+```
+
+### 4. Audio Track Discovery & Switching
+
+```kotlin
+val audioTracks: List<InfinityAudioTrack> = player.getAudioTracks()
+audioTracks.forEach { track ->
+    Log.d("Audio", "ID: ${track.id}, Language: ${track.language}, Title: ${track.displayTitle}")
+}
+
+// Switch audio track seamlessly
+player.selectAudioTrack(selectedTrackId)
+```
+
+### 5. Subtitle Management
+
+```kotlin
+val subtitleTracks: List<InfinitySubtitleTrack> = player.getSubtitleTracks()
+subtitleTracks.forEach { track ->
+    Log.d("Subtitle", "ID: ${track.id}, Language: ${track.language}, Title: ${track.displayTitle}")
+}
+
+// Select a specific subtitle track
+player.selectSubtitleTrack(selectedSubtitleTrackId)
+
+// Disable subtitles
+player.disableSubtitles()
+```
+
+### 6. Accurate Telemetry Listener
+
+```kotlin
+player.addListener(object : InfinityPlayerListener {
+    override fun onNvcTelemetryUpdated(telemetry: NvcTelemetry) {
+        Log.d("NVC", "Provider: ${telemetry.executionProvider}, FPS: ${telemetry.instantFps}, Concealed Frames: ${telemetry.concealedFrames}")
+    }
+
+    override fun onAudioTelemetryUpdated(telemetry: AudioTelemetry) {
+        Log.d("Audio", "Decoder: ${telemetry.decoderName}, Underruns: ${telemetry.underruns}, Latency: ${telemetry.audioLatencyMs}ms, ACDB Errors: ${telemetry.acdbErrorCount}")
+    }
+
+    override fun onPlaybackStateChanged(isPlaying: Boolean, isBuffering: Boolean) {
+        Log.d("Player", "isPlaying: $isPlaying, isBuffering: $isBuffering")
+    }
+
+    override fun onRecoveredFromStall(stallDurationMs: Long) {
+        Log.w("Player", "Stream auto-recovered after ${stallDurationMs}ms stall")
+    }
+})
 ```
 
 ---
 
-## Configuration Reference
+## Hardware Compatibility & Validation Matrix
 
-| Option | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `audioOutputMode` | `AudioOutputMode` | `AUTO` | Automatic hardware mitigation for Qualcomm ACDB crashes; or explicit PCM/Passthrough. |
-| `preferredAudioLanguages` | `List<String>` | `["hi", "en"]` | Priority list for automatic audio language selection. |
-| `preferredSubtitleLanguages` | `List<String>` | `["en", "hi"]` | Priority list for automatic subtitle language selection. |
-| `enableNvcConcealment` | `Boolean` | `true` | Enables ONNX Runtime NNAPI/ARM latent frame concealment. |
-| `minBufferMs` | `Long` | `12000L` | Minimum buffer threshold before resuming playback data consumption. |
-| `maxBufferMs` | `Long` | `15000L` | Maximum forward buffer limit to prevent live stream TCP edge socket timeouts. |
-| `bufferForPlaybackMs` | `Long` | `1500L` | Buffer required to start initial rendering. |
-| `bufferForPlaybackAfterRebufferMs` | `Long` | `2500L` | Buffer required to resume playback after re-buffering. |
-| `lowLatencyMpegTs` | `Boolean` | `true` | Optimizes TsExtractor flags for immediate PTS/DTS sync on live streams. |
-| `reconnectTimeoutMs` | `Long` | `15000L` | Maximum duration before initiating silent session recovery. |
+Tested on physical production hardware across diverse SoC architectures:
+
+| Device | SoC Architecture | OS Version | Hardware Decoder | Audio Safety Route | NVC Provider |
+|---|---|---|---|---|---|
+| OnePlus Nord CE (EB2101) | Qualcomm Snapdragon 750G (SM7225) | Android 13 | c2.qti.avc.decoder | Safe Stereo PCM (ACDB Protected) | NNAPI |
+| POCO F3 / Xiaomi Mi 11X | Qualcomm Snapdragon 870 (SM8250-AC) | Android 13 | c2.qti.avc.decoder | Safe Stereo PCM (ACDB Protected) | NNAPI |
+| Google Pixel 7 | Google Tensor G2 | Android 14 | c2.exynos.h264.decoder | Multichannel PCM | NNAPI |
+| Samsung Galaxy S21 | Exynos 2100 | Android 13 | c2.exynos.h264.decoder | Multichannel PCM | ARM-CPU Fallback |
+
+---
+
+## Supported Formats & Protocols
+
+- **Streaming Protocols**: MPEG-TS over HTTP/HTTPS, HLS (RFC 8216), DASH (ISO/IEC 23009-1), Progressive MP4/MKV.
+- **Video Codecs**: AVC / H.264, HEVC / H.265, VP9.
+- **Audio Codecs**: AAC-LC, HE-AAC v1/v2, AC-3 (Dolby Digital), E-AC3 (Dolby Digital Plus), MP3.
+- **Subtitle Formats**: WebVTT, SubRip (SRT), TTML, ASS/SSA (embedded or sidecar).
+
+---
+
+## Changelog
+
+### v1.2.0
+- Added accurate hardware-level telemetry powered by Media3 `AnalyticsListener`.
+- Replaced estimated metrics with real decoder names (`c2.qti.*`), actual underrun counts, dropped video frames, and measured audio latency.
+- Introduced first-class `InfinityVideoTrack` model and seamless resolution switching (`getVideoTracks()`, `selectVideoTrack()`, `setAutoVideoTrack()`).
+- Added automated JUnit test coverage for audio output modes, track metadata, and buffer hysteresis configuration.
+- Enhanced Qualcomm detection heuristics for Snapdragon 7xx, 8xx, and Gen series SoCs.
+
+### v1.1.0
+- Added first-class `InfinityAudioTrack` discovery and seamless non-restarting audio track switching.
+- Introduced `AudioSafetyController` with configurable `AudioOutputMode` (`AUTO`, `STEREO_PCM`, `MULTICHANNEL_PCM`, `PASSTHROUGH`).
+- Implemented PTS-synchronized subtitle engine supporting WebVTT, SRT, TTML, and ASS/SSA.
+- Added language preference prioritization for audio and subtitles.
+
+### v1.0.0
+- Initial standalone release with NVC Neural Video Concealment (ONNX Runtime + NNAPI).
+- Custom `InfinityLoadControl` anti-stall live buffering engine.
+- Media3 MPEG-TS live network streaming extractor.
 
 ---
 
 ## License
 
-This library is distributed under the [MIT License](LICENSE).
+MIT License. Copyright (c) 2026 Asheesh Sahu.

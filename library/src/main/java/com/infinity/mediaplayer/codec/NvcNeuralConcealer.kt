@@ -71,6 +71,10 @@ class NvcNeuralConcealer(private val context: Context) {
         return modelFile
     }
 
+    fun recordDroppedFrame() {
+        concealedFrameCounter.incrementAndGet()
+    }
+
     fun recordRenderedFrame(bitrateKbps: Int = 0) {
         val frames = activeFrameCounter.incrementAndGet()
         val now = SystemClock.elapsedRealtime()
