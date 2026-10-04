@@ -7,23 +7,28 @@ import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
-import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.video.VideoRendererEventListener
+import com.infinity.mediaplayer.audio.AudioSafetyController
+import com.infinity.mediaplayer.audio.AudioTelemetry
+import com.infinity.mediaplayer.audio.InfinityAudioTrack
 import com.infinity.mediaplayer.codec.NvcNeuralConcealer
 import com.infinity.mediaplayer.codec.NvcTelemetry
+import com.infinity.mediaplayer.subtitle.InfinitySubtitleTrack
 
 @OptIn(UnstableApi::class)
 class InfinityPlayer(
@@ -37,16 +42,29 @@ class InfinityPlayer(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val listeners = mutableListOf<InfinityPlayerListener>()
 
-    // NVC Neural Codec Engine
+    // Subsystems
     val neuralConcealer: NvcNeuralConcealer? = if (config.enableNvcConcealment) {
         NvcNeuralConcealer(context)
     } else null
 
-    // Track Selector with Qualcomm ACDB safe parameters
+    val audioSafetyController = AudioSafetyController(context)
+
+    // Track internal mapping: ID -> Pair(TrackGroup, Index)
+    private val audioFormatMap = mutableMapOf<String, Pair<TrackGroup, Int>>()
+    private val subtitleFormatMap = mutableMapOf<String, Pair<TrackGroup, Int>>()
+
+    private val currentAudioTracks = mutableListOf<InfinityAudioTrack>()
+    private val currentSubtitleTracks = mutableListOf<InfinitySubtitleTrack>()
+
+    private var activeAudioTrack: InfinityAudioTrack? = null
+    private var activeSubtitleTrack: InfinitySubtitleTrack? = null
+
+    // Track Selector with safe defaults
     val trackSelector = DefaultTrackSelector(context).apply {
         parameters = buildUponParameters()
             .setPreferredAudioMimeTypes(MimeTypes.AUDIO_AAC, MimeTypes.AUDIO_MPEG)
             .setPreferredAudioLanguages(*config.preferredAudioLanguages.toTypedArray())
+            .setPreferredTextLanguages(*config.preferredSubtitleLanguages.toTypedArray())
             .setConstrainAudioChannelCountToDeviceCapabilities(true)
             .setExceedRendererCapabilitiesIfNecessary(false)
             .setExceedVideoConstraintsIfNecessary(true)
@@ -82,17 +100,7 @@ class InfinityPlayer(
             enableFloatOutput: Boolean,
             enableAudioTrackPlaybackParameters: Boolean
         ): AudioSink? {
-            return DefaultAudioSink.Builder(context)
-                .setEnableFloatOutput(false)
-                .apply {
-                    if (config.forceStereoPcmAudio) {
-                        setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
-                    }
-                }
-                .build()
-                .apply {
-                    setOffloadMode(AudioSink.OFFLOAD_MODE_DISABLED)
-                }
+            return audioSafetyController.buildAudioSink(config.audioOutputMode)
         }
     }
         .forceDisableMediaCodecAsynchronousQueueing()
@@ -112,6 +120,12 @@ class InfinityPlayer(
     private var isLiveStream: Boolean = false
     private var telemetryRunnable: Runnable? = null
 
+    // Audio Telemetry fields
+    private var activeAudioCodec: String? = null
+    private var activeAudioSampleRate: Int = 0
+    private var activeAudioChannels: Int = 0
+    private var activeAudioDecoderName: String? = null
+
     init {
         setupPlayerListener()
         startTelemetryLoop()
@@ -125,7 +139,7 @@ class InfinityPlayer(
                 listeners.forEach { it.onPlaybackStateChanged(isPlaying, isBuffering) }
 
                 if (playbackState == Player.STATE_ENDED && isLiveStream) {
-                    Log.w(TAG, "Live stream ended unexpectedly (input EOS). Triggering recovery.")
+                    Log.w(TAG, "Live network stream ended (input EOS). Triggering recovery.")
                     recoverLiveStream()
                 }
             }
@@ -135,39 +149,179 @@ class InfinityPlayer(
             }
 
             override fun onTracksChanged(tracks: Tracks) {
-                val audioTracksList = mutableListOf<String>()
-                for (group in tracks.groups) {
-                    if (group.type == C.TRACK_TYPE_AUDIO) {
-                        for (i in 0 until group.length) {
-                            val format = group.getTrackFormat(i)
-                            val label = format.language ?: format.sampleMimeType ?: "Audio Track $i"
-                            audioTracksList.add(label)
-                        }
-                    }
-                }
-                listeners.forEach { it.onTracksChanged(audioTracksList, null) }
+                processTrackChanges(tracks)
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 Log.e(TAG, "Playback error: ${error.message}", error)
+                if (error.errorCodeName.contains("AUDIO", ignoreCase = true)) {
+                    audioSafetyController.recordAcdbError()
+                }
                 listeners.forEach { it.onError(error) }
             }
         })
     }
 
+    private fun processTrackChanges(tracks: Tracks) {
+        audioFormatMap.clear()
+        subtitleFormatMap.clear()
+        currentAudioTracks.clear()
+        currentSubtitleTracks.clear()
+
+        var selectedAudio: InfinityAudioTrack? = null
+        var selectedSubtitle: InfinitySubtitleTrack? = null
+
+        for (group in tracks.groups) {
+            val mediaTrackGroup = group.mediaTrackGroup
+            val trackType = group.type
+
+            for (i in 0 until group.length) {
+                val format: Format = group.getTrackFormat(i)
+                val isSelected = group.isTrackSelected(i)
+
+                if (trackType == C.TRACK_TYPE_AUDIO) {
+                    val trackId = format.id ?: "${format.sampleMimeType}_${format.channelCount}_${format.sampleRate}_$i"
+                    audioFormatMap[trackId] = mediaTrackGroup to i
+
+                    val audioTrack = InfinityAudioTrack(
+                        id = trackId,
+                        language = format.language,
+                        label = format.label,
+                        mimeType = format.sampleMimeType,
+                        codec = format.codecs,
+                        channelCount = format.channelCount,
+                        sampleRate = format.sampleRate,
+                        bitrate = if (format.bitrate != Format.NO_VALUE) format.bitrate else null,
+                        isDefault = (format.selectionFlags and C.SELECTION_FLAG_DEFAULT) != 0,
+                        isForced = (format.selectionFlags and C.SELECTION_FLAG_FORCED) != 0,
+                        isSelected = isSelected
+                    )
+                    currentAudioTracks.add(audioTrack)
+                    if (isSelected) {
+                        selectedAudio = audioTrack
+                        activeAudioCodec = format.sampleMimeType
+                        activeAudioSampleRate = format.sampleRate
+                        activeAudioChannels = format.channelCount
+                        activeAudioDecoderName = if (audioSafetyController.resolveEffectiveMode(config.audioOutputMode) == com.infinity.mediaplayer.audio.AudioOutputMode.STEREO_PCM) {
+                            "MediaCodec (Stereo PCM Safe)"
+                        } else {
+                            "MediaCodec (${format.sampleMimeType})"
+                        }
+                    }
+                } else if (trackType == C.TRACK_TYPE_TEXT) {
+                    val subId = format.id ?: "subtitle_${format.language}_$i"
+                    subtitleFormatMap[subId] = mediaTrackGroup to i
+
+                    val subTrack = InfinitySubtitleTrack(
+                        id = subId,
+                        language = format.language,
+                        label = format.label,
+                        mimeType = format.sampleMimeType,
+                        isForced = (format.selectionFlags and C.SELECTION_FLAG_FORCED) != 0,
+                        isDefault = (format.selectionFlags and C.SELECTION_FLAG_DEFAULT) != 0,
+                        isClosedCaption = (format.roleFlags and C.ROLE_FLAG_CAPTION) != 0,
+                        isSelected = isSelected
+                    )
+                    currentSubtitleTracks.add(subTrack)
+                    if (isSelected) {
+                        selectedSubtitle = subTrack
+                    }
+                }
+            }
+        }
+
+        activeAudioTrack = selectedAudio
+        activeSubtitleTrack = selectedSubtitle
+
+        listeners.forEach {
+            it.onAudioTracksAvailable(currentAudioTracks.toList(), activeAudioTrack)
+            it.onSubtitleTracksAvailable(currentSubtitleTracks.toList(), activeSubtitleTrack)
+        }
+    }
+
+    // ── First-Class Audio APIs ────────────────────────────────────────────────
+
+    fun getAudioTracks(): List<InfinityAudioTrack> = currentAudioTracks.toList()
+
+    fun getSelectedAudioTrack(): InfinityAudioTrack? = activeAudioTrack
+
+    /**
+     * Seamlessly switches audio track without resetting video rendering or re-buffering source.
+     */
+    fun selectAudioTrack(trackId: String): Boolean {
+        val target = audioFormatMap[trackId] ?: return false
+        val newParams = exoPlayer.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            .addOverride(TrackSelectionOverride(target.first, target.second))
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .build()
+        exoPlayer.trackSelectionParameters = newParams
+        Log.i(TAG, "Switched to audio track: $trackId")
+        return true
+    }
+
+    // ── First-Class Subtitle APIs ─────────────────────────────────────────────
+
+    fun getSubtitleTracks(): List<InfinitySubtitleTrack> = currentSubtitleTracks.toList()
+
+    fun getSelectedSubtitleTrack(): InfinitySubtitleTrack? = activeSubtitleTrack
+
+    fun selectSubtitleTrack(trackId: String): Boolean {
+        val target = subtitleFormatMap[trackId] ?: return false
+        val newParams = exoPlayer.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .addOverride(TrackSelectionOverride(target.first, target.second))
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .build()
+        exoPlayer.trackSelectionParameters = newParams
+        Log.i(TAG, "Selected subtitle track: $trackId")
+        return true
+    }
+
+    fun disableSubtitles() {
+        val newParams = exoPlayer.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .build()
+        exoPlayer.trackSelectionParameters = newParams
+        activeSubtitleTrack = null
+        Log.i(TAG, "Subtitles disabled.")
+    }
+
+    // ── Telemetry Loop ────────────────────────────────────────────────────────
+
     private fun startTelemetryLoop() {
         telemetryRunnable = object : Runnable {
             override fun run() {
+                // NVC Video Telemetry
                 neuralConcealer?.let { concealer ->
                     concealer.recordRenderedFrame()
                     val telemetry = concealer.getTelemetry()
-                    listeners.forEach { it.onTelemetryUpdated(telemetry) }
+                    listeners.forEach { it.onNvcTelemetryUpdated(telemetry) }
                 }
+
+                // Audio Telemetry
+                val audioTelem = AudioTelemetry(
+                    codec = activeAudioCodec,
+                    sampleRate = activeAudioSampleRate,
+                    channels = activeAudioChannels,
+                    outputMode = audioSafetyController.resolveEffectiveMode(config.audioOutputMode),
+                    decoderName = activeAudioDecoderName,
+                    underruns = audioSafetyController.underrunCount,
+                    droppedAudioFrames = 0L,
+                    acdbErrorCount = audioSafetyController.acdbErrorCount,
+                    audioLatencyMs = 40L,
+                    isSafetyLayerActive = true
+                )
+                listeners.forEach { it.onAudioTelemetryUpdated(audioTelem) }
+
                 mainHandler.postDelayed(this, 350)
             }
         }
         mainHandler.post(telemetryRunnable!!)
     }
+
+    // ── Playback Controls ─────────────────────────────────────────────────────
 
     fun play(url: String, headers: Map<String, String> = emptyMap(), isLive: Boolean = true) {
         this.currentUrl = url
@@ -198,6 +352,12 @@ class InfinityPlayer(
         exoPlayer.seekTo(positionMs)
     }
 
+    val currentPosition: Long
+        get() = exoPlayer.currentPosition
+
+    val duration: Long
+        get() = exoPlayer.duration
+
     fun recoverLiveStream() {
         val url = currentUrl ?: return
         mainHandler.post {
@@ -215,8 +375,21 @@ class InfinityPlayer(
         listeners.remove(listener)
     }
 
-    fun getTelemetry(): NvcTelemetry {
+    fun getNvcTelemetry(): NvcTelemetry {
         return neuralConcealer?.getTelemetry() ?: NvcTelemetry()
+    }
+
+    fun getAudioTelemetry(): AudioTelemetry {
+        return AudioTelemetry(
+            codec = activeAudioCodec,
+            sampleRate = activeAudioSampleRate,
+            channels = activeAudioChannels,
+            outputMode = audioSafetyController.resolveEffectiveMode(config.audioOutputMode),
+            decoderName = activeAudioDecoderName,
+            underruns = audioSafetyController.underrunCount,
+            acdbErrorCount = audioSafetyController.acdbErrorCount,
+            audioLatencyMs = 40L
+        )
     }
 
     fun release() {

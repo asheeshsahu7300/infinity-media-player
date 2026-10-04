@@ -1,11 +1,16 @@
 package com.infinity.mediaplayer.core
 
+import com.infinity.mediaplayer.audio.AudioTelemetry
+import com.infinity.mediaplayer.audio.InfinityAudioTrack
 import com.infinity.mediaplayer.codec.NvcTelemetry
+import com.infinity.mediaplayer.subtitle.InfinitySubtitleTrack
 
 interface InfinityPlayerListener {
     fun onPlaybackStateChanged(isPlaying: Boolean, isBuffering: Boolean) {}
-    fun onTelemetryUpdated(telemetry: NvcTelemetry) {}
+    fun onNvcTelemetryUpdated(telemetry: NvcTelemetry) {}
+    fun onAudioTelemetryUpdated(telemetry: AudioTelemetry) {}
     fun onLiveStreamRecovered() {}
-    fun onTracksChanged(audioTracks: List<String>, selectedAudioTrack: String?) {}
+    fun onAudioTracksAvailable(tracks: List<InfinityAudioTrack>, selectedTrack: InfinityAudioTrack?) {}
+    fun onSubtitleTracksAvailable(tracks: List<InfinitySubtitleTrack>, selectedTrack: InfinitySubtitleTrack?) {}
     fun onError(error: Throwable) {}
 }

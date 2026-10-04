@@ -6,6 +6,7 @@ import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import com.infinity.mediaplayer.core.InfinityPlayer
 
 @OptIn(UnstableApi::class)
@@ -19,6 +20,9 @@ class InfinityPlayerView @JvmOverloads constructor(
         useController = false
     }
 
+    val subtitleView: SubtitleView?
+        get() = playerView.subtitleView
+
     init {
         addView(playerView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
@@ -29,5 +33,9 @@ class InfinityPlayerView @JvmOverloads constructor(
 
     fun detachPlayer() {
         playerView.player = null
+    }
+
+    fun setSubtitleTextSize(sp: Float) {
+        subtitleView?.setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp)
     }
 }
