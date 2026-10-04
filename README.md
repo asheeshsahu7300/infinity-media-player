@@ -32,9 +32,9 @@ A resilient Android media engine for unstable live network streams.
 
 ## Core Capabilities
 
-- **Resilient Live Network Streaming**: Tuned for high-jitter, lossy connections using low-hysteresis buffering (1.5s initial buffer, 2.5s rebuffer target) and persistent-header auto-recovery.
-- **NVC-Live Neural Concealment**: Neural recovery engine running quantized ONNX Runtime models via Android Neural Networks API (NNAPI) with automatic fallback to multi-threaded ARM CPU execution.
-- **Hardware-Aware Audio Safety (Qualcomm & MediaTek)**: Automatically detects Qualcomm Snapdragon and MediaTek (Dimensity, Helio, Pentonic) chipsets alongside Dirac audio services. Prevents Qualcomm Hexagon ADSP ACDB crashes and MediaTek BesLoudness audio HAL distortions by routing safe stereo PCM on handhelds and multichannel PCM on Android TV. Automatically detects Snapdragon chipsets and Dirac vendor audio frameworks. Prevents fatal Qualcomm Hexagon ADSP ACDB audio calibration crashes (`result=-100` on topology `0x10012d00`) by enforcing standard 16-bit 48 kHz stereo PCM downmixing.
+- **Resilient Live Network Streaming**: 12–15 second live buffer window with a 3-second hysteresis range (1.5s initial buffer for immediate playback, 2.5s rebuffer target), engineered for high-jitter, lossy connections with persistent-header auto-recovery.
+- **NVC-Live Neural Concealment**: Integrates NVC-Live latent-space neural concealment into the playback pipeline for dropped-frame resilience, running quantized ONNX Runtime models via Android Neural Networks API (NNAPI) with automatic fallback to multi-threaded ARM CPU execution.
+- **Hardware-Aware Audio Safety (Qualcomm & MediaTek)**: Automatically detects Qualcomm Snapdragon and MediaTek (Dimensity, Helio, Pentonic) chipsets alongside Dirac audio services. Prevents fatal Qualcomm Hexagon ADSP ACDB crashes (`0x10012d00`) and MediaTek BesLoudness audio HAL distortions by routing safe 16-bit 48 kHz stereo PCM downmixing on handhelds and multichannel PCM on Android TV.
 - **Software FFmpeg Audio Fallback**: Bundled `media3-ffmpeg-decoder` ensures continuous software decoding of AC-3, E-AC3, and DTS audio streams regardless of device hardware limitations.
 - **Unified Track Management**: First-class discovery and seamless switching for video resolutions (4K, 1080p, 720p, 480p), audio languages, and subtitle tracks (WebVTT, SubRip SRT, TTML, ASS/SSA).
 - **Accurate Telemetry Pipeline**: Built directly on Media3 `AnalyticsListener` capturing real hardware decoder names (`c2.qti.*`), actual audio buffer underruns, source FPS vs. measured rendered FPS, and playout latencies.
@@ -101,7 +101,7 @@ In your app module `build.gradle`:
 
 ```groovy
 dependencies {
-    implementation 'com.github.asheeshsahu7300:infinity-media-player:1.2.1'
+    implementation 'com.github.asheeshsahu7300:infinity-media-player:v1.2.1'
 }
 ```
 
@@ -112,7 +112,7 @@ val config = InfinityPlayerConfig.Builder()
     .setPreferredAudioLanguages(listOf("hi", "en"))
     .setPreferredSubtitleLanguages(listOf("en", "hi"))
     .setAudioOutputMode(AudioOutputMode.AUTO)
-    .setBufferHysteresis(minMs = 12000L, maxMs = 15000L)
+    .setBufferHysteresis(minMs = 12000L, maxMs = 15000L) // 12-15s live buffer window (3s hysteresis)
     .setBufferForPlayback(playbackMs = 1500L, rebufferMs = 2500L)
     .setReconnectTimeoutMs(15000L)
     .setEnableNvcConcealment(true)
