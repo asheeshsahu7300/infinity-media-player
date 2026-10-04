@@ -69,7 +69,7 @@ afterEvaluate {
 
                 pom {
                     name = 'Infinity Media Player'
-                    description = 'Resilient Android Media Player SDK with NVC Neural Video Concealment, Qualcomm ACDB audio fix, and low-latency IPTV streaming engine.'
+                    description = 'Resilient Android Media Player SDK with NVC Neural Video Concealment, Qualcomm ACDB audio fix, and low-latency live network streaming engine.'
                     url = 'https://github.com/asheeshsahu7300/infinity-media-player'
                     licenses {
                         license {

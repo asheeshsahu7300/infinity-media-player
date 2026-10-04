@@ -6,7 +6,7 @@
 [![Media3](https://img.shields.io/badge/Media3-1.4.1-orange.svg)](https://developer.android.com/media/media3)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-NNAPI%20%7C%20ARM-blueviolet.svg)](https://onnxruntime.ai/)
 
-An all-in-one, resilient Android Media Player library combining Google Media3 (ExoPlayer) with an embedded NVC-Live Neural Video Latent Concealer (ONNX Runtime / Android NNAPI), designed specifically for seamless live IPTV streaming, zero-stall network hysteresis, and Qualcomm ACDB hardware audio safety.
+An all-in-one, resilient Android Media Player library combining Google Media3 (ExoPlayer) with an embedded NVC-Live Neural Video Latent Concealer (ONNX Runtime / Android NNAPI), designed specifically for seamless live network streaming, zero-stall network hysteresis, and Qualcomm ACDB hardware audio safety.
 
 ---
 
@@ -22,7 +22,7 @@ An all-in-one, resilient Android Media Player library combining Google Media3 (E
   - Automatically downmixes multichannel audio (AC-3 5.1, E-AC3, AAC 5.1) to clean 16-bit 48kHz stereo PCM before feeding hardware AudioTrack.
   - Prevents audio packet drops, stutter, and device crash on OnePlus, Oppo, Realme, Xiaomi, and Samsung devices.
 
-- **Zero-Drop Live IPTV Hysteresis Buffering**:
+- **Zero-Drop Live Network Streaming Hysteresis Buffering**:
   - Continuous TCP socket consumption tuned with low-hysteresis min/max buffers to prevent edge server write timeouts and premature `input EOS` drops.
   - Silent auto-recovery watchdog for live stream drops.
 
