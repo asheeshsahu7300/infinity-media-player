@@ -43,6 +43,8 @@ A resilient Android media engine for unstable live network streams.
 
 ## Benchmark Evidence
 
+![Infinity Media Player NVC-Live Network Resilience Benchmark](docs/assets/benchmark_comparison.png)
+
 ### Extreme Bad Network Resilience (~448 kbps capacity)
 
 ```text
