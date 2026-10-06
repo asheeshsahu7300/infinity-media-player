@@ -75,7 +75,7 @@ NVC-Live Latent Concealment (Ours)          33.89 dB (+9.77 dB)
 ### Technical Boundary & Research Transparency
 
 - **NVC-Live Research Benchmarks**: Evaluated on raw video latent traces under severe network degradation (25% packet loss, bandwidth collapse to 448 kbps).
-- **Android Runtime Implementation (v1.2.1)**: Runs ONNX Runtime (NNAPI / ARM-CPU fallback) in a synchronized sidecar evaluation mode measuring frame inference latency, frame drops, and neural budget under real playback. Direct frame reconstruction injection into the hardware video surface is scheduled for v1.3.0.
+- **Android Runtime Implementation (v1.3.0)**: Upgrades from sidecar evaluation to an active **end-to-end neural frame reconstruction prototype**. Reconstructs missing RGB frames from base latents (`nvc_reconstructor_e2e.onnx` via NNAPI / ARM-CPU fallback) and injects them onto the playback rendering path via a hardware GPU overlay with bilinear texture filtering upon presentation timestamp (PTS) delivery misses. Full native 1080p/4K neural super-resolution is targeted for v1.4.0.
 
 ---
 
@@ -101,7 +101,7 @@ In your app module `build.gradle`:
 
 ```groovy
 dependencies {
-    implementation 'com.github.asheeshsahu7300:infinity-media-player:v1.2.1'
+    implementation 'com.github.asheeshsahu7300:infinity-media-player:v1.3.0'
 }
 ```
 
@@ -186,7 +186,7 @@ player.disableSubtitles()
 ```kotlin
 player.addListener(object : InfinityPlayerListener {
     override fun onNvcTelemetryUpdated(telemetry: NvcTelemetry) {
-        Log.d("NVC", "Provider: ${telemetry.executionProvider}, Source FPS: ${telemetry.sourceFps}, Rendered FPS: ${telemetry.renderedFps}, Concealed: ${telemetry.concealedFrames}")
+        Log.d("NVC", "Provider: ${telemetry.executionProvider}, Concealed: ${telemetry.concealedFrames}, Composed: ${telemetry.composedFrames}, Missed: ${telemetry.missedDeadlines}, Failed: ${telemetry.failedFrames}, P50: ${telemetry.latencyP50Ms}ms, P95: ${telemetry.latencyP95Ms}ms")
     }
 
     override fun onAudioTelemetryUpdated(telemetry: AudioTelemetry) {
@@ -231,6 +231,14 @@ Validated on physical production devices:
 ---
 
 ## Changelog
+
+### v1.3.0
+- **End-to-End Neural Frame Reconstruction Prototype**: Replaced sidecar evaluation with active neural reconstruction. Base latents (`y_base [1,48,32,32]`) synthesize RGB frames via `nvc_reconstructor_e2e.onnx`.
+- **Hardware GPU Overlay Composition Layer**: Added hardware-accelerated `nvcRenderLayer` with bilinear filtering directly inside `InfinityPlayerView`.
+- **Presentation Timestamp (PTS) Delivery Miss Detector**: Reconstructed frames are triggered dynamically upon video presentation timeline gaps ($\Delta t > 1.8 \times \text{frameDurationUs}$).
+- **Rigorous Telemetry Accounting Invariant**: Enforces `CONCEALED` (synthesized), `MISSED` (timeline misses), `COMPOSED` (rendered onto GPU overlay), and `FAILED` (inference/draw exceptions).
+- **Inference Latency Percentiles**: Added sliding-window P50 and P95 latency tracking (`latencyP50Ms`, `latencyP95Ms`).
+- **Deterministic Startup Verification**: Added startup tensor integrity check logging output range, shape, and execution time.
 
 ### v1.2.1
 - Preserved request headers (User-Agent, Authorization, Cookies) during live stream recovery reconnects.
