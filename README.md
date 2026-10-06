@@ -43,7 +43,15 @@ A resilient Android media engine built on Media3 with event-driven neural frame 
 
 ## v1.3.0 Experimental Hardware Validation (Frozen Milestone)
 
-Validated on physical production hardware: **OnePlus Nord CE 5G (Qualcomm Snapdragon 750G, Android 13)** at commit `aab82ae`.
+### Physical Device Validation
+
+| Device | Provider | FPS | P50 | P95 | Concealed | Composed | Failed | Validation Evidence |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| **OnePlus Nord CE / Snapdragon 750G** | **NNAPI** | **24.0** | **51.5 ms** | **60.5 ms** | **1** | **1** | **0** | [Validation Report](docs/validation/v1.3-oneplus-nord-ce.md) |
+
+> **Validation Scope**: Tested on physical hardware with seek/discontinuity handling, GPU surface composition, measured kernel process CPU, framework audio telemetry, and Android thermal monitoring.
+
+### Detailed Telemetry & Accounting (OnePlus Nord CE 5G, Android 13)
 
 | Metric | Measured Result | Evaluation & Source |
 |---|---:|---|
@@ -117,7 +125,7 @@ NVC-Live Latent Concealment (Ours)          33.89 dB (+9.77 dB)
 
 ### Technical Boundary & Roadmap
 
-- **v1.3.0 (Frozen Systems Milestone)**: Validated end-to-end prototype on physical hardware. Reconstructs missing frames from stream-conditioned base latents (`nvc_reconstructor_e2e.onnx` via NNAPI / ARM-CPU fallback) and injects them onto the playback rendering path via a hardware GPU overlay with bilinear texture filtering upon presentation timestamp (PTS) delivery misses.
+- **v1.3.0 (Frozen Systems Milestone)**: Validated end-to-end prototype on physical hardware. Reconstructs RGB frames from stream-conditioned base latent representations using `nvc_reconstructor_e2e.onnx` via NNAPI / ARM-CPU fallback and injects them onto the playback rendering path via a hardware GPU overlay with bilinear texture filtering upon presentation timestamp (PTS) delivery misses. Direct learned latent extraction from the decoded video/pixel pipeline is targeted for v1.4.0.
 - **v1.4.0 (Research & Content-Fidelity Roadmap)**:
   1. Pixel-buffer / bitstream $\rightarrow$ learned encoder latent extraction
   2. Latent dimension and statistical normalization alignment
@@ -178,7 +186,7 @@ playerView.attachPlayer(player)
 player.play(
     url = "https://example.com/live/stream.ts",
     headers = mapOf(
-        "User-Agent" to "InfinityMediaPlayer/1.2",
+        "User-Agent" to "InfinityMediaPlayer/1.3",
         "Authorization" to "Bearer <token>"
     ),
     isLive = true
@@ -259,17 +267,24 @@ player.addListener(object : InfinityPlayerListener {
 
 ## Hardware Compatibility Matrix
 
-Validated on physical production devices:
+### Physically Validated Devices (with Validation Reports)
 
-| Device | SoC Architecture | OS Version | Hardware Video Decoder | Audio Safety Route | NVC Provider |
+| Device | SoC Architecture | OS Version | Hardware Video Decoder | Audio Safety Route | NVC Provider | Evidence Report |
+|---|---|---|---|---|---|---|
+| **OnePlus Nord CE (EB2101)** | Qualcomm Snapdragon 750G (SM7225) | Android 13 | `c2.qti.avc.decoder` | Safe Stereo PCM (ACDB Protected) | **NNAPI** | [v1.3 Report](docs/validation/v1.3-oneplus-nord-ce.md) |
+
+### Targeted / Architecture Compatibility Configurations
+
+The following platforms have been verified for decoder pipeline compatibility and audio safety routing; dedicated v1.3 neural reconstruction benchmarks are pending:
+
+| Device | SoC Architecture | OS Version | Hardware Video Decoder | Audio Safety Route | Target NVC Route |
 |---|---|---|---|---|---|
-| OnePlus Nord CE (EB2101) | Qualcomm Snapdragon 750G (SM7225) | Android 13 | c2.qti.avc.decoder | Safe Stereo PCM (ACDB Protected) | NNAPI |
-| POCO F3 / Xiaomi Mi 11X | Qualcomm Snapdragon 870 (SM8250-AC) | Android 13 | c2.qti.avc.decoder | Safe Stereo PCM (ACDB Protected) | NNAPI |
-| Xiaomi Redmi Note 12 Pro+ | MediaTek Dimensity 1080 (MT6877V) | Android 13 | c2.mtk.avc.decoder | Safe Stereo PCM (MTK HAL Protected) | MediaTek APU (NNAPI) |
-| OnePlus 10R / Realme GT Neo 3 | MediaTek Dimensity 8100 (MT6895Z) | Android 14 | c2.mtk.hevc.decoder | Safe Stereo PCM (MTK HAL Protected) | MediaTek APU (NNAPI) |
-| Sony Bravia / TCL Android TV | MediaTek Pentonic 700 (MT96xx) | Android TV 12 | c2.mtk.hevc.decoder | Multichannel PCM / Passthrough | MediaTek APU (NNAPI) |
-| Google Pixel 7 | Google Tensor G2 | Android 14 | c2.exynos.h264.decoder | Multichannel PCM | NNAPI |
-| Samsung Galaxy S21 | Exynos 2100 | Android 13 | c2.exynos.h264.decoder | Multichannel PCM | ARM-CPU Fallback |
+| POCO F3 / Xiaomi Mi 11X | Qualcomm Snapdragon 870 (SM8250-AC) | Android 13 | `c2.qti.avc.decoder` | Safe Stereo PCM (ACDB Protected) | NNAPI |
+| Xiaomi Redmi Note 12 Pro+ | MediaTek Dimensity 1080 (MT6877V) | Android 13 | `c2.mtk.avc.decoder` | Safe Stereo PCM (MTK HAL Protected) | MediaTek APU (NNAPI) |
+| OnePlus 10R / Realme GT Neo 3 | MediaTek Dimensity 8100 (MT6895Z) | Android 14 | `c2.mtk.hevc.decoder` | Safe Stereo PCM (MTK HAL Protected) | MediaTek APU (NNAPI) |
+| Sony Bravia / TCL Android TV | MediaTek Pentonic 700 (MT96xx) | Android TV 12 | `c2.mtk.hevc.decoder` | Multichannel PCM / Passthrough | MediaTek APU (NNAPI) |
+| Google Pixel 7 | Google Tensor G2 | Android 14 | `c2.exynos.h264.decoder` | Multichannel PCM | NNAPI |
+| Samsung Galaxy S21 | Exynos 2100 | Android 13 | `c2.exynos.h264.decoder` | Multichannel PCM | ARM-CPU Fallback |
 
 ---
 
