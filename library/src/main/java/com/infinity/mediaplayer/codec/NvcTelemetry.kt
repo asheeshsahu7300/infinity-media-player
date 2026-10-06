@@ -9,8 +9,16 @@ data class NvcTelemetry(
     val renderedFps: Float = 0.0f,
     val bitrateKbps: Int = 0,
     val avgInferenceLatencyMs: Float = 0.0f,
+    val lastInferenceLatencyMs: Float = 0.0f,
     val concealedFrames: Long = 0L,
     val droppedFrames: Long = 0L,
     val activeFrames: Long = 0L,
-    val executionProvider: String = "CPU"
+    val executionProvider: String = "ARM-CPU",
+    val cpuUsagePercent: Float = 0.0f,
+    val ramUsageMb: Float = 0.0f,
+    val thermalStatus: String = "NOMINAL",
+    val batteryLevel: Int = -1,
+    val bufferHealthSec: Float = 0.0f,
+    val packetLossPercent: Float = 0.0f,
+    val rebufferCount: Int = 0
 )
