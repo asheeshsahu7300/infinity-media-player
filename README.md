@@ -41,22 +41,28 @@ A resilient Android media engine built on Media3 with event-driven neural frame 
 
 ---
 
-## v1.3.0 Experimental Hardware Validation
+## v1.3.0 Experimental Hardware Validation (Frozen Milestone)
 
-Validated on physical production hardware: **OnePlus Nord CE (Qualcomm Snapdragon 750G, Android 13)**.
+Validated on physical production hardware: **OnePlus Nord CE 5G (Qualcomm Snapdragon 750G, Android 13)** at commit `aab82ae`.
 
-| Metric | Measured Result |
-|---|---:|
-| NVC Acceleration Provider | NNAPI (`c2.qti.*`) |
-| Stream Resolution | 1080p FHD |
-| Playback FPS | 25.0 – 30.0 FPS |
-| NVC Reconstruction Latency (P50 / P95) | 51.5 / 51.5 ms (41.99 – 51.46 ms single) |
-| Live Buffer Cushion | 14.7 s |
-| Reconstructed Frames (`CONCEALED`) | 1 |
-| GPU Surface Compositions (`COMPOSED`) | 1 |
-| Reconstruction Failures (`FAILED`) | 0 |
-| Timeline Discontinuities (`DISCONT`) | 2 |
-| Spurious Missed Frames on Seek | 0 |
+| Metric | Measured Result | Evaluation & Source |
+|---|---:|---|
+| **NVC Acceleration Provider** | **NNAPI** | Qualcomm Hexagon DSP / Adreno 619 NPU |
+| **Stream Resolution** | **1080p FHD** | Video surface decoder target |
+| **Rendered Playback FPS** | **24.0 FPS** | Framework-derived (`recordRenderedFrame`) matching film cadence |
+| **Reconstruction Latency (P50 / P95)** | **51.5 / 60.5 ms** | Hardware-measured execution (`NvcNeuralConcealer`) |
+| **Process CPU Usage** | **~8.3% Total SoC** (66.6% single core) | Kernel-derived via `Process.getElapsedCpuTime()` |
+| **Process RAM (PSS / Native Heap)** | **653 MB / 334 MB** | Measured via Android `Debug.MemoryInfo` |
+| **Audio Playout Latency** | **25–40 ms** | Framework-derived via `onAudioPositionAdvancing` |
+| **Device Thermal State** | **NOMINAL** (37.5°C) | Android `PowerManager` thermal status |
+| **Live Buffer Headroom** | **13.6 – 15.7 s** | Healthy forward jitter buffer |
+| **Concealed Frames (`CONCEALED`)** | **1** | Neural concealment executed |
+| **GPU Surface Compositions (`COMPOSED`)** | **1** | Surface layer composition verified |
+| **Reconstruction Failures (`FAILED`)** | **0** | Zero inference or composition errors |
+| **Timeline Discontinuities (`DISCONT`)** | **2** | Seeks/skips correctly classified |
+| **Spurious Missed Frames (`MISSED`)** | **0** | Discontinuity gating eliminates false drop surges |
+
+> **Key Systems Finding**: NNAPI-accelerated event-driven neural reconstruction was successfully executed and composed on physical Snapdragon 750G hardware, with 51.5 ms P50 and 60.5 ms P95 inference latency.
 
 The validation demonstrates the complete end-to-end prototype path on physical silicon:
 
@@ -65,6 +71,16 @@ Media3 Stream → PTS Timeline Miss Detection → NVC/NNAPI Latent Inference →
 ```
 
 > **Design Principle**: NVC reconstruction is event-driven rather than continuously invoked, allocating neural compute only when playback continuity is threatened rather than burdening the mobile thermal envelope by processing every frame.
+
+### Architectural Qualification (v1.3 vs. v1.4)
+
+> **Important Qualification for Research & Documentation:**  
+> The current v1.3.0 milestone validates the complete end-to-end systems architecture:  
+> **Network / timeline event $\rightarrow$ NVC inference $\rightarrow$ Reconstructed frame $\rightarrow$ GPU composition**  
+>  
+> In **v1.3.0**, the base latent is **stream-conditioned**—modulated dynamically by presentation timestamps, frame geometry, and bitrate energy. It is **not** an encoder-derived latent extracted directly from decoded bitstream syntax elements.  
+>  
+> Consequently, v1.3 proves that the neural pipeline executes and composes reliably on physical Android hardware. Demonstrating that the reconstructed pixels are a faithful reconstruction of the ground-truth missing video content from encoder-derived latents is the central research objective of **v1.4.0**.
 
 ---
 
@@ -101,9 +117,17 @@ NVC-Live Latent Concealment (Ours)          33.89 dB (+9.77 dB)
 
 ### Technical Boundary & Roadmap
 
-- **v1.3.0 (Current)**: Validated end-to-end prototype on physical hardware. Reconstructs missing frames from base latents (`nvc_reconstructor_e2e.onnx` via NNAPI / ARM-CPU fallback) and injects them onto the playback rendering path via a hardware GPU overlay with bilinear texture filtering upon presentation timestamp (PTS) delivery misses.
-- **v1.4.0 (Performance & Scaling)**: Target INT8 quantization, memory buffer pooling/reuse, asynchronous pipelined inference, and native-resolution reconstruction scaling.
-- **v2.0.0 (Production)**: Production-grade continuous/multi-frame neural replacement with full zero-copy hardware graphic buffer sharing.
+- **v1.3.0 (Frozen Systems Milestone)**: Validated end-to-end prototype on physical hardware. Reconstructs missing frames from stream-conditioned base latents (`nvc_reconstructor_e2e.onnx` via NNAPI / ARM-CPU fallback) and injects them onto the playback rendering path via a hardware GPU overlay with bilinear texture filtering upon presentation timestamp (PTS) delivery misses.
+- **v1.4.0 (Research & Content-Fidelity Roadmap)**:
+  1. Pixel-buffer / bitstream $\rightarrow$ learned encoder latent extraction
+  2. Latent dimension and statistical normalization alignment
+  3. Native-resolution reconstruction path rather than 128×128 GPU overlay
+  4. Quantization & performance optimization (INT8 operator pruning, zero-copy buffer pooling)
+  5. Compare neural reconstruction against actual ground-truth missing frames
+  6. Measure objective quality benchmarks (**PSNR, SSIM, VMAF, LPIPS**) on concealed frames
+  7. Comparative evaluation against baselines (frame repeat, zero padding, optical flow interpolation, conventional error concealment)
+  8. End-to-end QoE evaluation under controlled packet loss and bandwidth drop profiles.
+- **v2.0.0 (Production)**: Production-grade continuous/multi-frame neural replacement with full zero-copy hardware graphic buffer sharing (`HardwareBuffer` / `SurfaceControl`).
 
 ---
 
