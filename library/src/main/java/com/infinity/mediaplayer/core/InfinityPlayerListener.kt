@@ -16,6 +16,5 @@ interface InfinityPlayerListener {
     fun onSubtitleTracksAvailable(tracks: List<InfinitySubtitleTrack>, selectedTrack: InfinitySubtitleTrack?) {}
     fun onVideoTracksAvailable(tracks: List<InfinityVideoTrack>, selectedTrack: InfinityVideoTrack?) {}
     fun onConcealedFrameRendered(bitmap: Bitmap) {}
-    fun onRecoveredFromStall(stallDurationMs: Long = 300L) {}
     fun onError(error: Throwable) {}
 }
