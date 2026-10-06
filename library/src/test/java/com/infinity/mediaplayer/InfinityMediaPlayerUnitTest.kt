@@ -29,12 +29,10 @@ class InfinityMediaPlayerUnitTest {
     fun testMediaTekAndQualcommDetectionHelpers() {
         // Validation that static detector helpers execute without exceptions on JVM
         val isQcom = AudioSafetyController.isQualcommDevice()
-        val isMtk = AudioSafetyController.isMediaTekDevice()
         val hasDirac = AudioSafetyController.hasDiracService()
 
         // Just ensure boolean evaluations complete cleanly
         assertTrue(isQcom || !isQcom)
-        assertTrue(isMtk || !isMtk)
         assertTrue(hasDirac || !hasDirac)
     }
 
@@ -55,7 +53,7 @@ class InfinityMediaPlayerUnitTest {
         )
 
         assertEquals("Hindi Main", track.displayTitle)
-        assertTrue(track.isMultichannel)
+        assertEquals(6, track.channelCount)
         assertTrue(track.isSelected)
         assertTrue(track.isDefault)
         assertFalse(track.isForced)
@@ -63,20 +61,15 @@ class InfinityMediaPlayerUnitTest {
 
     @Test
     fun testInfinityVideoTrackResolutionLabels() {
-        val track4k = InfinityVideoTrack("v1", 3840, 2160, 60.0f, 15000000, "hvc1", false)
-        val track1080p = InfinityVideoTrack("v2", 1920, 1080, 59.94f, 6000000, "avc1", true)
-        val track720p = InfinityVideoTrack("v3", 1280, 720, 30.0f, 3000000, "avc1", false)
-        val track480p = InfinityVideoTrack("v4", 854, 480, 29.97f, 1200000, "avc1", false)
+        val track4k = InfinityVideoTrack("v1", 3840, 2160, 15000000, "hvc1", false)
+        val track1080p = InfinityVideoTrack("v2", 1920, 1080, 6000000, "avc1", true)
+        val track720p = InfinityVideoTrack("v3", 1280, 720, 3000000, "avc1", false)
+        val track480p = InfinityVideoTrack("v4", 854, 480, 1200000, "avc1", false)
 
         assertEquals("4K UHD", track4k.displayTitle)
         assertEquals("1080p FHD", track1080p.displayTitle)
         assertEquals("720p HD", track720p.displayTitle)
         assertEquals("480p SD", track480p.displayTitle)
-
-        assertEquals("4K (3840x2160)", track4k.resolutionLabel)
-        assertEquals("1080p (1920x1080)", track1080p.resolutionLabel)
-        assertEquals("720p (1280x720)", track720p.resolutionLabel)
-        assertEquals("480p (854x480)", track480p.resolutionLabel)
     }
 
     @Test

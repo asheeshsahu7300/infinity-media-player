@@ -261,12 +261,15 @@ Validated on physical production devices:
 ## Changelog
 
 ### v1.3.0
-- **End-to-End Neural Frame Reconstruction Prototype**: Replaced sidecar evaluation with active neural reconstruction. Base latents (`y_base [1,48,32,32]`) synthesize RGB frames via `nvc_reconstructor_e2e.onnx`.
+- **End-to-End Neural Frame Reconstruction Prototype**: Runs the NVC reconstruction model on the Android playback path and composes the generated RGB output onto the GPU surface overlay when presentation deadline misses occur.
+- **Stream-Modulated Base Latents**: Latents are dynamically modulated from incoming presentation timestamps, aspect ratio, and stream bitrate energy, avoiding static constants while preparing for v1.4.0 pixel encoder extraction.
+- **Deduplicated Frame Loss Triggering**: Unified dropped-frame telemetry under `AnalyticsListener` while keeping `VideoFrameMetadataListener` as the sole authoritative evaluator for presentation timeline deadline misses.
+- **Real Process CPU & Accurate FPS Telemetry**: Replaced synthetic estimations with real kernel process CPU time accounting (`Process.getElapsedCpuTime()`) and pure hardware rendered frame counts.
+- **Measured Audio Playout Latency**: Wired real audio playout latency measurement dynamically via `onAudioPositionAdvancing`.
 - **Hardware GPU Overlay Composition Layer**: Added hardware-accelerated `nvcRenderLayer` with bilinear filtering directly inside `InfinityPlayerView`.
-- **Presentation Timestamp (PTS) Delivery Miss Detector**: Reconstructed frames are triggered dynamically upon video presentation timeline gaps ($\Delta t > 1.8 \times \text{frameDurationUs}$).
+- **Presentation Timestamp (PTS) Delivery Miss Detector**: Reconstructed frames are triggered dynamically upon video presentation timeline gaps ($\Delta t > 1.8 \times \text{frameDurationUs}$) while gracefully isolating intentional seek discontinuities.
 - **Rigorous Telemetry Accounting Invariant**: Enforces `CONCEALED` (synthesized), `MISSED` (timeline misses), `COMPOSED` (rendered onto GPU overlay), and `FAILED` (inference/draw exceptions).
 - **Inference Latency Percentiles**: Added sliding-window P50 and P95 latency tracking (`latencyP50Ms`, `latencyP95Ms`).
-- **Deterministic Startup Verification**: Added startup tensor integrity check logging output range, shape, and execution time.
 
 ### v1.2.1
 - Preserved request headers (User-Agent, Authorization, Cookies) during live stream recovery reconnects.

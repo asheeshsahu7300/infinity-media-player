@@ -16,9 +16,9 @@ class AudioSafetyController(private val context: Context) {
         private const val TAG = "AudioSafetyController"
 
         fun isQualcommDevice(): Boolean {
-            val hardware = Build.HARDWARE.lowercase()
-            val board = Build.BOARD.lowercase()
-            val soc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL.lowercase() else ""
+            val hardware = Build.HARDWARE?.lowercase().orEmpty()
+            val board = Build.BOARD?.lowercase().orEmpty()
+            val soc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL?.lowercase().orEmpty() else ""
             return hardware.contains("qcom") || hardware.contains("qualcomm") ||
                    board.contains("msm") || board.contains("sdm") || board.contains("sm") ||
                    board.contains("bengal") || board.contains("lahaina") || board.contains("taro") ||
@@ -26,8 +26,8 @@ class AudioSafetyController(private val context: Context) {
         }
 
         fun hasDiracService(): Boolean {
-            val manufacturer = Build.MANUFACTURER.lowercase()
-            val brand = Build.BRAND.lowercase()
+            val manufacturer = Build.MANUFACTURER?.lowercase().orEmpty()
+            val brand = Build.BRAND?.lowercase().orEmpty()
             return manufacturer.contains("oneplus") || manufacturer.contains("oppo") ||
                    manufacturer.contains("realme") || brand.contains("oneplus") ||
                    brand.contains("oppo") || brand.contains("realme")

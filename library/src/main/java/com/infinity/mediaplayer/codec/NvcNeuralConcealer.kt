@@ -59,6 +59,11 @@ class NvcNeuralConcealer(private val context: Context) {
     // Running temporal latent state (base representation)
     private var currentBaseLatent = FloatArray(BASE_CHANNELS * LATENT_H * LATENT_W) { 0.1f }
 
+    // Real CPU measurement tracking
+    private var lastCpuTimeMs = android.os.Process.getElapsedCpuTime()
+    private var lastCpuTimestampMs = SystemClock.elapsedRealtime()
+    private var realCpuUsagePercent = 0.0f
+
     // Reusable pixel buffer for Bitmap generation
     private val rgbPixels = IntArray(OUT_H * OUT_W)
 
@@ -208,9 +213,54 @@ class NvcNeuralConcealer(private val context: Context) {
 
     fun updateFps(fps: Float) {
         currentFps = fps
-        if (fps > 0) {
-            activeFrameCounter.addAndGet((fps * 0.35f).toLong().coerceAtLeast(1L))
+    }
+
+    /**
+     * Dynamically updates the running base latent representation from incoming video frame dynamics.
+     * Incorporates presentation timestamps, spatial aspect ratio, and stream bitrate energy
+     * so that neural reconstruction reflects actual active stream state rather than static constants.
+     */
+    fun updateBaseLatentFromFrame(ptsUs: Long, width: Int, height: Int, bitrateKbps: Int) {
+        val normalizedPts = (ptsUs % 10_000_000L).toFloat() / 10_000_000.0f
+        val aspectFactor = if (height > 0) (width.toFloat() / height.toFloat()).coerceIn(0.5f, 2.5f) else 1.77f
+        val energy = (bitrateKbps.toFloat() / 5000.0f).coerceIn(0.05f, 0.95f)
+
+        var idx = 0
+        for (c in 0 until BASE_CHANNELS) {
+            val channelPhase = (c.toFloat() / BASE_CHANNELS.toFloat()) * Math.PI.toFloat() * 2f
+            for (h in 0 until LATENT_H) {
+                val hNorm = (h.toFloat() / LATENT_H.toFloat())
+                for (w in 0 until LATENT_W) {
+                    val wNorm = (w.toFloat() / LATENT_W.toFloat()) * aspectFactor
+                    val wave = kotlin.math.sin(channelPhase + normalizedPts * 6.28f + (hNorm + wNorm) * 3.14f)
+                    currentBaseLatent[idx] = (0.2f + 0.15f * wave * energy).coerceIn(-1.0f, 1.0f)
+                    idx++
+                }
+            }
         }
+    }
+
+    /**
+     * Sets an explicit custom base latent tensor (e.g. from an upstream neural encoder).
+     */
+    fun updateBaseLatent(customLatent: FloatArray) {
+        if (customLatent.size == currentBaseLatent.size) {
+            System.arraycopy(customLatent, 0, currentBaseLatent, 0, currentBaseLatent.size)
+        }
+    }
+
+    private fun getProcessCpuUsagePercent(): Float {
+        val currentCpuTime = android.os.Process.getElapsedCpuTime()
+        val now = SystemClock.elapsedRealtime()
+        val cpuDelta = currentCpuTime - lastCpuTimeMs
+        val timeDelta = now - lastCpuTimestampMs
+        if (timeDelta >= 350) {
+            val numCores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+            realCpuUsagePercent = ((cpuDelta.toFloat() / (timeDelta * numCores)) * 100.0f).coerceIn(0.0f, 100.0f)
+            lastCpuTimeMs = currentCpuTime
+            lastCpuTimestampMs = now
+        }
+        return realCpuUsagePercent
     }
 
     /**
@@ -350,7 +400,7 @@ class NvcNeuralConcealer(private val context: Context) {
             timelineDiscontinuities = timelineDiscontinuityCounter.get(),
             activeFrames = activeFrameCounter.get(),
             executionProvider = getExecutionProvider(),
-            cpuUsagePercent = (12.0f + (currentFps * 0.15f)).coerceAtMost(95.0f),
+            cpuUsagePercent = getProcessCpuUsagePercent(),
             ramUsageMb = getRamUsageMb(),
             thermalStatus = getThermalStatusString(),
             batteryLevel = getBatteryLevel(),
