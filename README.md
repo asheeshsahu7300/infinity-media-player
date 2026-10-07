@@ -125,16 +125,16 @@ NVC-Live Latent Concealment (Ours)          33.89 dB (+9.77 dB)
 
 ### Technical Boundary & Roadmap
 
-- **v1.3.0 (Frozen Systems Milestone)**: Validated end-to-end prototype on physical hardware. Reconstructs RGB frames from stream-conditioned base latent representations using `nvc_reconstructor_e2e.onnx` via NNAPI / ARM-CPU fallback and injects them onto the playback rendering path via a hardware GPU overlay with bilinear texture filtering upon presentation timestamp (PTS) delivery misses. Direct learned latent extraction from the decoded video/pixel pipeline is targeted for v1.4.0.
-- **v1.4.0 (Research & Content-Fidelity Roadmap)**:
-  1. Pixel-buffer / bitstream $\rightarrow$ learned encoder latent extraction
-  2. Latent dimension and statistical normalization alignment
-  3. Native-resolution reconstruction path rather than 128×128 GPU overlay
-  4. Quantization & performance optimization (INT8 operator pruning, zero-copy buffer pooling)
-  5. Compare neural reconstruction against actual ground-truth missing frames
-  6. Measure objective quality benchmarks (**PSNR, SSIM, VMAF, LPIPS**) on concealed frames
-  7. Comparative evaluation against baselines (frame repeat, zero padding, optical flow interpolation, conventional error concealment)
-  8. End-to-end QoE evaluation under controlled packet loss and bandwidth drop profiles.
+- **v1.3.0 (Frozen Systems Milestone)**: Validated end-to-end prototype on physical hardware ([OnePlus Nord CE validation report](docs/validation/v1.3-oneplus-nord-ce.md)). Reconstructs RGB frames from stream-conditioned base latent representations using `nvc_reconstructor_e2e.onnx` via NNAPI / ARM-CPU fallback and injects them onto the playback rendering path via a hardware GPU overlay with bilinear texture filtering upon presentation timestamp (PTS) delivery misses.
+- **v1.4.0 (In Progress - Pixel-Derived Feature Extraction & Objective Benchmarks)**:
+  1. **Pixel-Derived Feature Extraction**: Implemented `NvcFeatureExtractor.kt` extracting a 48-channel $[1, 48, 32, 32]$ spatio-temporal feature tensor (Rec. 709 luma, chroma opponency, Sobel/Laplacian spatial gradients, and temporal inter-frame motion residuals) from hardware-rendered video frames tapped via `PixelCopy` / `TextureView`.
+  2. **Scientific Distinction**: This tensor is *deterministically constructed from decoded pixels* rather than inferred by a trained deep neural encoder model (`nvc_encoder.onnx`). An end-to-end learned neural analysis encoder is targeted for **v1.5.0**.
+  3. **Two-Stage ONNX Pipeline**: Dual-session inference linking temporal latent prediction (`nvc_latent_concealer.onnx`) with synthesis decoding (`nvc_reconstructor_e2e.onnx`).
+  4. **Full-Reference Benchmark & Causality Analysis**: Objective quality evaluated against ground-truth uncorrupted reference sequences ([Full Benchmark Report](docs/benchmarks/nvc_v1.4_quality_evaluation.md)):
+     - **Non-Causal Interpolation** yields higher raw PSNR (61.51 dB vs 59.64 dB) but requires non-causal future-frame lookahead, adding **+41.7 ms of display buffer delay**.
+     - **NVC Neural Concealment** achieves **0.9838 SSIM** with **0.0 ms added playback buffering delay** (strictly causal live concealment).
+     - **Latent Staleness**: Telemetry exports `latentAgeMs`—measuring the exact staleness gap between periodic background sampling (~208 ms age) and per-frame latent caching (41.7 ms age).
+- **v1.5.0 (Learned Neural Analysis Encoder)**: Deep neural encoder network (`nvc_encoder.onnx`) replacing deterministic feature construction for true end-to-end learned pixel-to-latent autoencoding.
 - **v2.0.0 (Production)**: Production-grade continuous/multi-frame neural replacement with full zero-copy hardware graphic buffer sharing (`HardwareBuffer` / `SurfaceControl`).
 
 ---

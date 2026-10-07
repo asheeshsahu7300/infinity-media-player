@@ -89,4 +89,56 @@ class InfinityMediaPlayerUnitTest {
         assertEquals(5000L, config.maxBufferMs)
         assertTrue(config.enableNvcConcealment)
     }
+
+    @Test
+    fun testNvcFeatureExtractorOutputShapeAndNormalization() {
+        val extractor = com.infinity.mediaplayer.codec.NvcFeatureExtractor(48, 32, 32)
+        val w = 64
+        val h = 64
+        val pixels = IntArray(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            val r = (x * 4) and 0xFF
+            val g = (y * 4) and 0xFF
+            val b = ((x + y) * 2) and 0xFF
+            (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        }
+
+        val latent = extractor.extractLatentFromRgbPixels(pixels, w, h)
+        assertEquals(48 * 32 * 32, latent.size)
+
+        // Verify all values are finite and within normalized bounds [-1.0, 1.0]
+        for (i in latent.indices) {
+            val v = latent[i]
+            assertFalse("Latent element must not be NaN at $i", v.isNaN())
+            assertFalse("Latent element must not be Infinite at $i", v.isInfinite())
+            assertTrue("Latent element must be in [-1.0, 1.0] at $i, was $v", v in -1.0f..1.0f)
+        }
+    }
+
+    @Test
+    fun testNvcFeatureExtractorTemporalInterFrameTracking() {
+        val extractor = com.infinity.mediaplayer.codec.NvcFeatureExtractor(48, 32, 32)
+        val w = 32
+        val h = 32
+        val frame1 = IntArray(w * h) { 0xFF000000.toInt() } // black frame
+        val frame2 = IntArray(w * h) { 0xFFFFFFFF.toInt() } // white frame (high motion/delta)
+
+        // Frame 1
+        val latent1 = extractor.extractLatentFromRgbPixels(frame1, w, h)
+        // On first frame, motion magnitude channels (e.g. channel 33) should be near zero
+        val ch33_frame1 = latent1[(33 * 32 + 16) * 32 + 16]
+        assertEquals(0.0f, ch33_frame1, 0.001f)
+
+        // Frame 2 has large delta
+        val latent2 = extractor.extractLatentFromRgbPixels(frame2, w, h)
+        val ch33_frame2 = latent2[(33 * 32 + 16) * 32 + 16]
+        assertTrue("Channel 33 motion magnitude must be > 0 on inter-frame jump", ch33_frame2 > 0.5f)
+
+        // Reset temporal state
+        extractor.resetTemporalState()
+        val latent3 = extractor.extractLatentFromRgbPixels(frame2, w, h)
+        val ch33_frame3 = latent3[(33 * 32 + 16) * 32 + 16]
+        assertEquals(0.0f, ch33_frame3, 0.001f)
+    }
 }

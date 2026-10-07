@@ -217,6 +217,20 @@ class InfinityPlayer(
         Log.i(TAG, "[NVC] Reset deadline baseline ($reason)")
     }
 
+    /**
+     * Updates NVC base latent directly from decoded RGB pixel buffers (v1.4.0).
+     */
+    fun updateLatentFromPixels(pixels: IntArray, width: Int, height: Int) {
+        neuralConcealer?.updateBaseLatentFromPixels(pixels, width, height)
+    }
+
+    /**
+     * Updates NVC base latent directly from decoded Bitmap (v1.4.0).
+     */
+    fun updateLatentFromBitmap(bitmap: android.graphics.Bitmap) {
+        neuralConcealer?.updateBaseLatentFromBitmap(bitmap)
+    }
+
     private fun setupVideoFrameMetadataListener() {
         exoPlayer.setVideoFrameMetadataListener { presentationTimeUs, _, format, _ ->
             val bitrateKbps = if (format.bitrate > 0) format.bitrate / 1000 else 0
