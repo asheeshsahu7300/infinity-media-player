@@ -58,6 +58,8 @@ To rigorously evaluate the exact effects of **causality**, **lookahead buffering
 
 ## 5. Critical Research Insights & Architectural Findings
 
+> **Core Research Finding**: The 24-FPS ablation establishes a four-way systems trade-off: **causality**, **reconstruction fidelity**, **latent freshness**, and **compute overhead**.
+
 ### A. The Causality vs. Quality Trade-off
 - **Linear interpolation achieves higher raw PSNR/SSIM (+1.87 dB PSNR, +0.0082 SSIM)** over all causal methods.
 - However, this is fundamentally achieved because interpolation has **non-causal access to the future frame $I_{t+1}$**. In live media delivery, this lookahead requirement forces the player to buffer frames in an artificial display queue, adding **41.7 ms of added playback latency**.
