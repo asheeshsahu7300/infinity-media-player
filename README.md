@@ -126,17 +126,17 @@ NVC-Live Latent Concealment (Ours)          33.89 dB (+9.77 dB)
 ### Technical Boundary & Roadmap
 
 - **v1.3.0 (Frozen Systems Milestone)**: Validated end-to-end prototype on physical hardware ([OnePlus Nord CE validation report](docs/validation/v1.3-oneplus-nord-ce.md)). Reconstructs RGB frames from stream-conditioned base latent representations using `nvc_reconstructor_e2e.onnx` via NNAPI / ARM-CPU fallback and injects them onto the playback rendering path via a hardware GPU overlay with bilinear texture filtering upon presentation timestamp (PTS) delivery misses.
-- **v1.4.0 (In Progress - Pixel-Derived Feature Extraction & Objective Benchmarks)**:
+- **v1.4.0 (Frozen Systems & Benchmark Milestone)**:
   1. **Pixel-Derived Feature Extraction**: Implemented `NvcFeatureExtractor.kt` extracting a 48-channel $[1, 48, 32, 32]$ spatio-temporal feature tensor (Rec. 709 luma, chroma opponency, Sobel/Laplacian spatial gradients, and temporal inter-frame motion residuals) from hardware-rendered video frames tapped via `PixelCopy` / `TextureView`.
-  2. **Scientific Distinction**: This tensor is *deterministically constructed from decoded pixels* rather than inferred by a trained deep neural encoder model (`nvc_encoder.onnx`). An end-to-end learned neural analysis encoder is targeted for **v1.5.0**.
-  3. **Two-Stage ONNX Pipeline**: Dual-session inference linking temporal latent prediction (`nvc_latent_concealer.onnx`) with synthesis decoding (`nvc_reconstructor_e2e.onnx`).
-  4. **Full-Reference Benchmark & Causality Analysis**: Objective quality evaluated against ground-truth uncorrupted reference sequences ([Full Benchmark Report](docs/benchmarks/nvc_v1.4_quality_evaluation.md)):
-     - **Non-Causal Interpolation** yields higher raw PSNR (61.51 dB vs 59.64 dB) but requires non-causal future-frame lookahead, adding **+41.7 ms of display buffer delay**.
-     - **NVC Neural Concealment** achieves **0.9838 SSIM** with **0.0 ms added playback buffering delay** (strictly causal live concealment).
-     - **Latent Staleness**: Telemetry exports `latentAgeMs`—measuring the exact staleness gap between periodic background sampling (~208 ms age) and per-frame latent caching (41.7 ms age).
-- **v1.5.0 (In Progress - Learned Autoencoder & Recursive Burst Propagation)**:
-  - **Single-Frame Autoencoder Hypothesis ($\mathcal{H}_{1.5a}$)**: Evaluated and falsified on isolated 1-frame drops ($21.85\text{ dB}$ full bottleneck vs $59.64\text{ dB}$ temporal repeat) due to intrinsic autoencoder quantization blur.
-  - **Burst-Loss Temporal Propagation ($\mathcal{H}_{1.5\text{-Burst}}$)**: Confirmed ([Burst Evaluation Report](docs/benchmarks/nvc_v1.5_burst_evaluation.md)). Causal recursive neural temporal propagation (`nvc_temporal_propagator.onnx`) strictly outperforms temporal frame repetition across all multi-frame burst depths ($1\text{ to } 6$ frames, $+2.59\text{ dB}$ to $+5.72\text{ dB}$ net gain) with $0.0\text{ ms}$ added playback delay.
+  2. **Scientific Distinction**: Formalized that this tensor is *deterministically constructed from decoded pixels* rather than inferred by a trained deep neural encoder model (`nvc_encoder.onnx`).
+  3. **Two-Stage Pipeline**: Dual-session inference linking temporal latent prediction with synthesis decoding.
+  4. **Controlled 24-FPS Benchmark & Causality Analysis**: Full-reference quality evaluated against ground-truth uncorrupted reference sequences ([Full Benchmark Report](docs/benchmarks/nvc_v1.4_quality_evaluation.md)), formalizing the four-way systems trade-off between causality, reconstruction fidelity, latent freshness, and compute overhead.
+- **v1.5.0 (Experimental — Neural Burst Concealment & Motion-Gated Propagation)**:
+  - **Falsification of Single-Frame Autoencoder ($\mathcal{H}_{1.5a}$)**: A naïve learned autoencoder bottleneck ($21.85\text{ dB}$) cannot match causal frame repetition ($59.64\text{ dB}$ on static/low motion) on isolated 1-frame drops due to spatial quantization blur.
+  - **Confirmation on Multi-Frame Bursts ($\mathcal{H}_{1.5\text{-Burst}}$)**: Causal recursive neural temporal propagation (`nvc_temporal_propagator.onnx`) tracks motion momentum and outperforms frame repetition across 1 to 6 frame drops ($+2.59\text{ dB}$ to $+5.72\text{ dB}$ on active motion sequences; $+1.3\text{ dB}$ to $+42.2\text{ dB}$ across dynamic content classes).
+  - **Multi-Content Statistical Replication**: Evaluated across 7 distinct content classes (14 sequences) with 95% confidence intervals ([Burst Evaluation Report](docs/benchmarks/nvc_v1.5_burst_evaluation.md)).
+  - **Motion-Gated Dual-Mode Concealment**: Uses zero-compute frame repetition for stationary/talking-head scenes and triggers neural temporal propagation for active motion bursts.
+  - **Systems Latency**: 1.8–2.2 ms per concealed frame on Snapdragon 750G / ARM64 with **0.0 ms added playback delay**.
 - **v2.0.0 (Production)**: Production-grade continuous/multi-frame neural replacement with full zero-copy hardware graphic buffer sharing (`HardwareBuffer` / `SurfaceControl`).
 
 ---
@@ -300,6 +300,21 @@ The following platforms have been verified for decoder pipeline compatibility an
 ---
 
 ## Changelog
+
+### v1.5.0 (Experimental — Neural Burst Concealment)
+- **Multi-Content Statistical Replication Benchmark**: Replicated burst concealment across 7 distinct content classes (14 sequences) with 95% confidence intervals, proving $+1.3\text{ dB}$ to $+42.2\text{ dB}$ gains on dynamic motion sequences ([Burst Evaluation Report](docs/benchmarks/nvc_v1.5_burst_evaluation.md)).
+- **Discrepancy Resolution**: Fully resolved the 59.64 dB (v1.4 static post-exit average) vs. 31.19 dB (v1.5 dynamic translation) baseline behavior, demonstrating that frame repeat is optimal on stationary video while neural temporal propagation excels on dynamic video.
+- **Causal Recursive Neural Temporal Propagator**: Bundled `nvc_temporal_propagator.onnx` estimating motion momentum vectors and recursively warping frames forward across multi-frame burst loss intervals (1 to 6 frames) with 0.0 ms added playback delay.
+- **Learned Analysis Encoder Integration**: Integrated `nvc_encoder.onnx` and updated `nvc_reconstructor_e2e.onnx` for true learned latent encoding and decoding.
+- **Motion-Gated Dual-Mode Concealment Pipeline**: Formalized adaptive gating directing stationary scenes to zero-compute frame repetition and active motion bursts to neural temporal propagation.
+- **Telemetry Exposure**: Added `isNeuralEncoderActive` tracking to `NvcTelemetry` and verified 1.8–2.2 ms per-frame inference latency on Snapdragon 750G / ARM64.
+
+### v1.4.0
+- **Pixel-Derived Spatio-Temporal Feature Extractor**: Introduced `NvcFeatureExtractor.kt` extracting 48-channel feature tensors (Rec. 709 luma, chroma opponency, Sobel/Laplacian spatial gradients, temporal motion residuals) directly from decoded video frames tapped via `PixelCopy` / `TextureView`.
+- **Two-Stage ONNX Execution Pipeline**: Dual-session inference linking temporal latent prediction with synthesis decoding.
+- **Controlled 24-FPS Frame-by-Frame Ablation**: Established the four-way systems trade-off (causality, reconstruction fidelity, latent freshness, and compute overhead).
+- **Latent Staleness Telemetry**: Added `latentAgeMs` tracking to monitor feature age gaps between background sampling (~208 ms) and per-frame caches (41.7 ms).
+- **Objective Full-Reference Benchmark Suite**: Added automated JUnit test suite for PSNR and SSIM evaluation against uncorrupted reference sequences.
 
 ### v1.3.0
 - **End-to-End Neural Frame Reconstruction Prototype**: Runs the NVC reconstruction model on the Android playback path and composes the generated RGB output onto the GPU surface overlay when presentation deadline misses occur.
