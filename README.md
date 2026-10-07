@@ -134,7 +134,9 @@ NVC-Live Latent Concealment (Ours)          33.89 dB (+9.77 dB)
      - **Non-Causal Interpolation** yields higher raw PSNR (61.51 dB vs 59.64 dB) but requires non-causal future-frame lookahead, adding **+41.7 ms of display buffer delay**.
      - **NVC Neural Concealment** achieves **0.9838 SSIM** with **0.0 ms added playback buffering delay** (strictly causal live concealment).
      - **Latent Staleness**: Telemetry exports `latentAgeMs`—measuring the exact staleness gap between periodic background sampling (~208 ms age) and per-frame latent caching (41.7 ms age).
-- **v1.5.0 (Learned Neural Analysis Encoder)**: Deep neural encoder network (`nvc_encoder.onnx`) replacing deterministic feature construction for true end-to-end learned pixel-to-latent autoencoding.
+- **v1.5.0 (In Progress - Learned Autoencoder & Recursive Burst Propagation)**:
+  - **Single-Frame Autoencoder Hypothesis ($\mathcal{H}_{1.5a}$)**: Evaluated and falsified on isolated 1-frame drops ($21.85\text{ dB}$ full bottleneck vs $59.64\text{ dB}$ temporal repeat) due to intrinsic autoencoder quantization blur.
+  - **Burst-Loss Temporal Propagation ($\mathcal{H}_{1.5\text{-Burst}}$)**: Confirmed ([Burst Evaluation Report](docs/benchmarks/nvc_v1.5_burst_evaluation.md)). Causal recursive neural temporal propagation (`nvc_temporal_propagator.onnx`) strictly outperforms temporal frame repetition across all multi-frame burst depths ($1\text{ to } 6$ frames, $+2.59\text{ dB}$ to $+5.72\text{ dB}$ net gain) with $0.0\text{ ms}$ added playback delay.
 - **v2.0.0 (Production)**: Production-grade continuous/multi-frame neural replacement with full zero-copy hardware graphic buffer sharing (`HardwareBuffer` / `SurfaceControl`).
 
 ---
