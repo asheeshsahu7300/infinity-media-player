@@ -55,7 +55,7 @@ A resilient Android media engine built on Media3 with event-driven neural frame 
 
 | Metric | Measured Result | Evaluation & Source |
 |---|---:|---|
-| **NVC Acceleration Provider** | **NNAPI** | Qualcomm Hexagon DSP / Adreno 619 NPU |
+| **NVC Acceleration Provider** | **NNAPI** | Qualcomm Snapdragon 750G hardware acceleration (Hexagon / AI engine) |
 | **Stream Resolution** | **1080p FHD** | Video surface decoder target |
 | **Rendered Playback FPS** | **24.0 FPS** | Framework-derived (`recordRenderedFrame`) matching film cadence |
 | **Reconstruction Latency (P50 / P95)** | **51.5 / 60.5 ms** | Hardware-measured execution (`NvcNeuralConcealer`) |
